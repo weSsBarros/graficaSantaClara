@@ -1,7 +1,7 @@
 // Gráficos (Chart.js). Cores vêm das variáveis CSS, então claro/escuro funcionam juntos.
 // Regras seguidas: linhas de 2px, barras finas (≤ 24px) com ponta arredondada,
 // grade discreta, um só eixo Y por gráfico, legenda para 2+ séries e dica ao passar o dedo/mouse.
-import { fmtNum, fmtCompact, fmtDay, plural } from './lib.js';
+import { fmtNum, fmtCompact, fmtDay, plural, brl, fmtMonth } from './lib.js';
 
 const registry = new Set();
 
@@ -339,6 +339,111 @@ export function consumptionChart(canvas, hist) {
           displayColors: false,
           callbacks: { label: (c) => ` Consumo: ${fmtNum(c.parsed.y)} ${plural(unit, c.parsed.y)}` },
         },
+      },
+    },
+  });
+}
+
+const moneyTick = (v) => (Math.abs(v) >= 1000 ? `R$ ${fmtCompact(v)}` : `R$ ${fmtNum(v, 0)}`);
+
+/** Receitas x despesas por mês (barras lado a lado, mesmo eixo em R$). */
+export function financeChart(canvas, monthly) {
+  const t = theme();
+  const bar = (color) => ({
+    backgroundColor: color, hoverBackgroundColor: alpha(color, 0.8), borderRadius: 4, borderSkipped: 'start',
+    maxBarThickness: 22, categoryPercentage: 0.7, barPercentage: 0.9,
+  });
+  return make(canvas, {
+    type: 'bar',
+    data: {
+      labels: monthly.map((m) => fmtMonth(m.month, true)),
+      datasets: [
+        { label: 'Receitas', data: monthly.map((m) => m.receitas), ...bar(t.s1) },
+        { label: 'Despesas', data: monthly.map((m) => m.despesas), ...bar(t.s2) },
+      ],
+    },
+    options: {
+      ...base(t),
+      scales: { x: axisX(t, { maxTicks: 12 }), y: { ...axisY(t), ticks: { ...axisY(t).ticks, callback: moneyTick } } },
+      plugins: {
+        ...base(t).plugins,
+        crosshair: { disabled: true },
+        tooltip: {
+          ...tooltipStyle(t),
+          boxHeight: 10,
+          callbacks: {
+            title: (c) => fmtMonth(monthly[c[0].dataIndex].month),
+            label: (c) => ` ${brl(c.parsed.y)}  ·  ${c.dataset.label}`,
+            footer: (c) => {
+              const m = monthly[c[0].dataIndex];
+              return `Resultado: ${brl(m.receitas - m.despesas)}`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+/** Despesas do mês por categoria (barras horizontais, uma série). */
+export function categoryChart(canvas, rows) {
+  const t = theme();
+  canvas.parentElement.style.height = `${Math.max(120, rows.length * 38 + 40)}px`;
+  return make(canvas, {
+    type: 'bar',
+    data: {
+      labels: rows.map((r) => r.name),
+      datasets: [{
+        label: 'Despesas', data: rows.map((r) => r.total), backgroundColor: t.s2, hoverBackgroundColor: alpha(t.s2, 0.8),
+        borderRadius: 4, borderSkipped: 'start', maxBarThickness: 20, categoryPercentage: 0.75, barPercentage: 1,
+      }],
+    },
+    options: {
+      ...base(t),
+      indexAxis: 'y',
+      interaction: { mode: 'nearest', axis: 'y', intersect: false },
+      scales: {
+        x: { ...axisY(t), ticks: { ...axisY(t).ticks, callback: moneyTick } },
+        y: { grid: { display: false }, border: { color: t.axis }, ticks: { color: t.text2, font: { size: 12 } } },
+      },
+      plugins: {
+        ...base(t).plugins,
+        crosshair: { disabled: true },
+        tooltip: { ...tooltipStyle(t), displayColors: false, callbacks: { label: (c) => ` ${brl(c.parsed.x)}` } },
+      },
+    },
+  });
+}
+
+/** Produção por produto no período: impressas x empacotadas (barras horizontais lado a lado). */
+export function productChart(canvas, rows) {
+  const t = theme();
+  canvas.parentElement.style.height = `${Math.max(140, rows.length * 52 + 40)}px`;
+  const bar = (color) => ({
+    backgroundColor: color, hoverBackgroundColor: alpha(color, 0.8), borderRadius: 4, borderSkipped: 'start',
+    maxBarThickness: 16, categoryPercentage: 0.8, barPercentage: 0.9,
+  });
+  return make(canvas, {
+    type: 'bar',
+    data: {
+      labels: rows.map((r) => r.name),
+      datasets: [
+        { label: 'Impressas', data: rows.map((r) => r.printed), ...bar(t.s1) },
+        { label: 'Empacotadas', data: rows.map((r) => r.packed), ...bar(t.s2) },
+      ],
+    },
+    options: {
+      ...base(t),
+      indexAxis: 'y',
+      interaction: { mode: 'index', axis: 'y', intersect: false },
+      scales: {
+        x: axisY(t),
+        y: { grid: { display: false }, border: { color: t.axis }, ticks: { color: t.text2, font: { size: 12 } } },
+      },
+      plugins: {
+        ...base(t).plugins,
+        crosshair: { disabled: true },
+        tooltip: { ...tooltipStyle(t), boxHeight: 10, callbacks: { label: (c) => ` ${fmtNum(c.parsed.x)} folhas  ·  ${c.dataset.label}` } },
       },
     },
   });

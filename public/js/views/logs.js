@@ -26,6 +26,21 @@ const ACTION_LABELS = {
   backup_baixado: 'Backup baixado',
   teste_aviso: 'Teste de aviso',
   instalacao: 'Instalação',
+  pedido_criado: 'Pedido criado',
+  pedido_alterado: 'Pedido alterado',
+  pedido_saiu: 'Saiu para entrega',
+  pedido_entregue: 'Pedido entregue',
+  pedido_cancelado: 'Pedido cancelado',
+  cliente_criado: 'Cliente cadastrado',
+  cliente_alterado: 'Cliente alterado',
+  financeiro_lancado: 'Financeiro: lançamento',
+  financeiro_alterado: 'Financeiro: alteração',
+  financeiro_pago: 'Financeiro: pagamento',
+  financeiro_cancelado: 'Financeiro: cancelamento',
+  financeiro_categoria: 'Financeiro: categoria',
+  permissoes: 'Permissões',
+  aviso_enviado: 'Aviso enviado',
+  aviso_falhou: 'Aviso não enviado',
 };
 
 export async function render(ctx) {

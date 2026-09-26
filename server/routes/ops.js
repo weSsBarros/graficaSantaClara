@@ -5,6 +5,7 @@ const { num, localDate, localDayStartIso, addDays, fmtLocalDateTime } = require(
 const { requireUser, requirePerm } = require('../auth');
 const { sendCsv } = require('../csv');
 const stock = require('../services/stock');
+const orders = require('../services/orders');
 const { dashboard } = require('../services/dashboard');
 
 module.exports = function opsRoutes(db) {
@@ -31,8 +32,12 @@ module.exports = function opsRoutes(db) {
     res.status(201).json(stock.ajuste(db, req.user, req.body, ctx(req)));
   });
 
-  r.post('/ops/producao', requireUser, (req, res) => {
-    res.status(201).json(stock.producao(db, req.user, req.body, ctx(req)));
+  r.post('/ops/impressao', requirePerm('impressao'), (req, res) => {
+    res.status(201).json(stock.impressao(db, req.user, req.body, ctx(req)));
+  });
+
+  r.post('/ops/empacotamento', requirePerm('empacotamento'), (req, res) => {
+    res.status(201).json(stock.empacotamento(db, req.user, req.body, ctx(req)));
   });
 
   r.post('/ops/:id/estorno', requireUser, (req, res) => {
@@ -78,22 +83,33 @@ module.exports = function opsRoutes(db) {
         )
         .all()
         .map((x) => x.v);
-    const machines = db
-      .prepare('SELECT machine AS v, MAX(occurred_at) AS last FROM maintenance GROUP BY machine ORDER BY last DESC LIMIT 20')
-      .all()
-      .map((x) => x.v);
-    res.json({ clients: col('client'), suppliers: col('supplier'), reasons: col('reason'), machines });
+    const distinct = (sql) => db.prepare(sql).all().map((x) => x.v);
+    res.json({
+      clients: distinct('SELECT name AS v FROM clients WHERE active = 1 ORDER BY name'),
+      suppliers: col('supplier'),
+      reasons: col('reason'),
+      machines: distinct('SELECT machine AS v FROM maintenance GROUP BY machine ORDER BY MAX(occurred_at) DESC LIMIT 20'),
+      models: distinct('SELECT DISTINCT model AS v FROM items WHERE model IS NOT NULL ORDER BY model'),
+      sizes: distinct('SELECT DISTINCT size AS v FROM items WHERE size IS NOT NULL ORDER BY size'),
+      brands: distinct('SELECT DISTINCT brand AS v FROM items WHERE brand IS NOT NULL ORDER BY brand'),
+    });
   });
 
-  // Tela inicial: produção de hoje, meus últimos lançamentos e alertas.
+  // Tela inicial: produção de hoje, meus últimos lançamentos, alertas e pedidos.
   r.get('/home', requireUser, (req, res) => {
     const d = dashboard(db, { days: 1 });
     const mine = stock.listOperations(db, req.user, { user_id: req.user.id, limit: 8 });
     res.json({
       today: d.current,
       alerts: d.items.filter((i) => i.forecast.status !== 'ok'),
+      orders: d.orders,
       my_operations: mine.operations,
     });
+  });
+
+  // Pedidos com itens ainda por empacotar (tela de empacotamento).
+  r.get('/packable-orders', requirePerm('empacotamento'), (req, res) => {
+    res.json(orders.packableOrders(db, req.user));
   });
 
   r.get('/dashboard', requireUser, (req, res) => {

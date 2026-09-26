@@ -3,7 +3,8 @@
 const crypto = require('node:crypto');
 const config = require('./config');
 const { HttpError, nowIso, DAY_MS } = require('./util');
-const { can } = require('./permissions');
+const { can, rolePerms } = require('./permissions');
+const { getSetting } = require('./db');
 
 const COOKIE = 'gsc_sess';
 
@@ -89,6 +90,7 @@ function loadUser(db) {
     const token = parseCookies(req.headers.cookie)[COOKIE];
     req.sessionToken = token || null;
     req.user = token ? stmt.get(sha256(token), nowIso()) || null : null;
+    if (req.user) req.user.perms = rolePerms(req.user.role, getSetting(db, 'role_perms', null));
     next();
   };
 }

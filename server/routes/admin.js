@@ -8,12 +8,12 @@ const { audit, diff } = require('../audit');
 const { getSetting, setSetting } = require('../db');
 const { HttpError, num, str, oneOf, bool, localDate, localDayStartIso, addDays, fmtLocalDateTime } = require('../util');
 const { requireUser, requirePerm, hashPin, validatePin, destroyUserSessions } = require('../auth');
-const { ROLES } = require('../permissions');
+const { ROLES, PERMS, MANAGER_ROLES, rolePerms } = require('../permissions');
+const reports = require('../services/reports');
+const { deliver } = require('../scheduler');
 const { sendCsv } = require('../csv');
 const notify = require('../services/notify');
 const stock = require('../services/stock');
-
-const KINDS = { impressao: 'Impressão', empacotamento: 'Empacotamento' };
 
 module.exports = function adminRoutes(db) {
   const r = express.Router();
@@ -113,76 +113,38 @@ module.exports = function adminRoutes(db) {
     res.json({ ok: true });
   });
 
-  // ---------- processos (impressão, empacotamento) ----------
+  // ---------- permissões por função ----------
 
-  r.get('/processes', requireUser, (_req, res) => {
-    const rows = db
-      .prepare(
-        `SELECT p.*, i.name AS input_name, o.name AS output_name
-           FROM processes p JOIN items i ON i.id = p.input_item_id LEFT JOIN items o ON o.id = p.output_item_id
-          ORDER BY p.active DESC, p.kind DESC, p.name`
-      )
-      .all();
-    res.json(rows.map((p) => ({ ...p, kind_label: KINDS[p.kind] })));
+  r.get('/roles', requirePerm('cadastros'), (_req, res) => {
+    const overrides = getSetting(db, 'role_perms', null);
+    res.json({
+      perms: PERMS,
+      manager_roles: MANAGER_ROLES,
+      roles: Object.entries(ROLES).map(([id, x]) => ({ id, label: x.label, perms: rolePerms(id, overrides) })),
+    });
   });
 
-  function readProcess(body) {
-    const roles = Array.isArray(body.roles) ? body.roles : String(body.roles || '').split(',');
-    const cleanRoles = roles.map((x) => String(x).trim()).filter((x) => ROLES[x]);
-    const inputId = num(body.input_item_id, 'o item consumido', { integer: true });
-    const outputId = num(body.output_item_id, 'o item gerado', { integer: true, required: false });
-    stock.getItem(db, inputId);
-    if (outputId) stock.getItem(db, outputId);
-    if (outputId && outputId === inputId) throw new HttpError(400, 'O item gerado deve ser diferente do consumido.');
-    return {
-      name: str(body.name, 'o nome do processo', { required: true, max: 60 }),
-      kind: oneOf(body.kind, 'tipo', Object.keys(KINDS)),
-      input_item_id: inputId,
-      output_item_id: outputId || null,
-      roles: [...new Set(cleanRoles)].join(','),
-      active: body.active === undefined ? 1 : bool(body.active) ? 1 : 0,
-    };
-  }
-
-  function saveProcess(req, res, before) {
-    const data = readProcess({ ...(before || {}), ...req.body });
-    try {
-      const id = db.transaction(() => {
-        let pid;
-        if (before) {
-          db.prepare(
-            `UPDATE processes SET name=@name, kind=@kind, input_item_id=@input_item_id, output_item_id=@output_item_id,
-                    roles=@roles, active=@active WHERE id=@id`
-          ).run({ ...data, id: before.id });
-          pid = before.id;
-        } else {
-          pid = Number(
-            db.prepare(
-              `INSERT INTO processes (name, kind, input_item_id, output_item_id, roles, active, created_at)
-               VALUES (@name, @kind, @input_item_id, @output_item_id, @roles, @active, @created_at)`
-            ).run({ ...data, created_at: new Date().toISOString() }).lastInsertRowid
-          );
-        }
-        const changes = diff(before, data, Object.keys(data));
-        audit(db, {
-          actor: req.user, action: before ? 'processo_alterado' : 'processo_criado', entity: 'process', entityId: pid, ip: req.ip,
-          summary: `${before ? 'Alterou' : 'Cadastrou'} o processo "${data.name}".`, details: changes,
-        });
-        return pid;
-      })();
-      res.status(before ? 200 : 201).json({ id });
-    } catch (err) {
-      if (String(err.message).includes('UNIQUE')) throw new HttpError(409, 'Já existe um processo com esse nome.');
-      throw err;
+  r.put('/roles', requirePerm('cadastros'), (req, res) => {
+    const input = req.body.roles || {};
+    const before = getSetting(db, 'role_perms', null);
+    const next = {};
+    const changes = [];
+    for (const role of Object.keys(ROLES)) {
+      if (MANAGER_ROLES.includes(role)) continue;
+      const list = Array.isArray(input[role]) ? input[role].filter((p) => PERMS[p]) : rolePerms(role, before);
+      next[role] = [...new Set(list)];
+      const old = rolePerms(role, before);
+      const added = next[role].filter((p) => !old.includes(p));
+      const removed = old.filter((p) => !next[role].includes(p));
+      if (added.length || removed.length) {
+        changes.push(`${ROLES[role].label}: ${[...added.map((p) => `+${PERMS[p]}`), ...removed.map((p) => `−${PERMS[p]}`)].join(', ')}`);
+      }
     }
-  }
-
-  r.post('/processes', requirePerm('cadastros'), (req, res) => saveProcess(req, res, null));
-
-  r.put('/processes/:id', requirePerm('cadastros'), (req, res) => {
-    const before = db.prepare('SELECT * FROM processes WHERE id = ?').get(Number(req.params.id));
-    if (!before) throw new HttpError(404, 'Processo não encontrado.');
-    saveProcess(req, res, before);
+    setSetting(db, 'role_perms', next);
+    if (changes.length) {
+      audit(db, { actor: req.user, action: 'permissoes', ip: req.ip, summary: `Alterou permissões — ${changes.join(' | ')}.`, details: next });
+    }
+    res.json({ ok: true });
   });
 
   // ---------- configurações ----------
@@ -195,7 +157,7 @@ module.exports = function adminRoutes(db) {
   r.get('/settings', requireUser, (_req, res) => {
     const out = {};
     for (const [k, s] of Object.entries(SETTINGS)) out[k] = { ...s, value: getSetting(db, k, s.def) };
-    res.json({ settings: out, telegram: notify.isConfigured() });
+    res.json({ settings: out, notify: notify.isConfigured(db) });
   });
 
   r.put('/settings', requirePerm('sistema'), (req, res) => {
@@ -219,13 +181,47 @@ module.exports = function adminRoutes(db) {
     res.json({ ok: true });
   });
 
+  // ---------- avisos (WhatsApp, e-mail, Telegram) e relatórios ----------
+
+  r.get('/settings/notify', requirePerm('sistema'), (_req, res) => {
+    res.json({ ...notify.publicConfig(db), channels: notify.channelStatus(db) });
+  });
+
+  r.put('/settings/notify', requirePerm('sistema'), (req, res) => {
+    notify.saveConfig(db, req.body || {});
+    const ready = notify.channelStatus(db).filter((c) => c.ready).map((c) => c.label);
+    audit(db, {
+      actor: req.user, action: 'configuracao', ip: req.ip,
+      summary: `Alterou a configuração de avisos. Canais ativos: ${ready.length ? ready.join(', ') : 'nenhum'}.`,
+    });
+    res.json({ ...notify.publicConfig(db), channels: notify.channelStatus(db) });
+  });
+
   r.post('/settings/test-notification', requirePerm('sistema'), async (req, res) => {
-    const result = await notify.send(`✅ Teste de aviso do sistema da Gráfica Santa Clara (enviado por ${req.user.name}).`);
+    const only = req.body.channel || null;
+    const results = await notify.send(db, `✅ Teste de aviso do sistema da Gráfica Santa Clara (enviado por ${req.user.name}).`, {
+      subject: 'Teste de aviso', only,
+    });
+    const ok = results.filter((r) => r.sent).map((r) => r.label);
+    const bad = results.filter((r) => !r.sent);
     audit(db, {
       actor: req.user, action: 'teste_aviso', ip: req.ip,
-      summary: result.sent ? 'Enviou mensagem de teste pelo Telegram.' : `Teste de aviso falhou: ${result.reason}.`,
+      summary: `Teste de aviso: ${ok.length ? `enviado por ${ok.join(', ')}` : 'nada enviado'}` +
+        (bad.length ? `; falhou: ${bad.map((r) => `${r.label} (${r.reason})`).join('; ')}` : '') + '.',
     });
-    res.json(result);
+    res.json({ results, sent: ok.length > 0 });
+  });
+
+  r.get('/reports/weekly', requirePerm('sistema'), (_req, res) => {
+    const cfg = notify.getConfig(db);
+    res.json({ text: reports.weeklyReport(db, { includeFinance: cfg.weekly.include_finance !== false }), daily: reports.dailyDigest(db) });
+  });
+
+  r.post('/reports/weekly/send', requirePerm('sistema'), async (_req, res) => {
+    const cfg = notify.getConfig(db);
+    const text = reports.weeklyReport(db, { includeFinance: cfg.weekly.include_finance !== false });
+    const results = await deliver(db, text, 'Relatório semanal', null);
+    res.json({ results, sent: results.some((r) => r.sent) });
   });
 
   // Cópia de segurança do banco inteiro, para guardar fora do computador/servidor.

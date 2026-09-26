@@ -7,6 +7,7 @@ const { createApp } = require('./app');
 const { seedIfEmpty } = require('./seed');
 const { dailyBackup } = require('./backup');
 const { refreshAlerts } = require('./services/stock');
+const { runSchedules } = require('./scheduler');
 
 const db = openDb(config.dbPath);
 seedIfEmpty(db);
@@ -24,19 +25,20 @@ const server = app.listen(config.port, () => {
   console.log(`  Banco de dados:    ${config.dbPath}`);
 });
 
-// Tarefas de rotina (a cada hora): backup do dia e reavaliação dos alertas de estoque
-// (a previsão muda com o passar dos dias, mesmo sem novos lançamentos).
+// Tarefas de rotina (a cada 10 minutos): backup do dia, reavaliação dos alertas de estoque
+// (a previsão muda com o passar dos dias) e envios automáticos (relatório semanal, resumo diário).
 async function routine() {
   try {
     const file = await dailyBackup(db);
     if (file) console.log(`[backup] ${file}`);
     refreshAlerts(db);
+    await runSchedules(db);
   } catch (err) {
     console.error('[rotina] erro:', err);
   }
 }
 routine();
-const timer = setInterval(routine, 60 * 60 * 1000);
+const timer = setInterval(routine, 10 * 60 * 1000);
 
 function shutdown() {
   clearInterval(timer);

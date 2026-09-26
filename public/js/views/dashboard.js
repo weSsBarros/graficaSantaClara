@@ -1,5 +1,5 @@
 import { html, api, fmtNum, fmtAvg, fmtQty, fmtDay, fmtCompact, packText, statusBadge, plural, $, $$ } from '../lib.js';
-import { productionChart, coverageChart, stockChart, consumptionChart, destroyCharts, destroyChart } from '../charts.js';
+import { productionChart, coverageChart, stockChart, consumptionChart, productChart, destroyCharts, destroyChart } from '../charts.js';
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -50,9 +50,10 @@ export async function render(ctx) {
           <div class="delta">${fmtNum(c.pack_orders)} ${plural('lançamento', c.pack_orders)}</div></div>
         <div class="tile"><p class="label">Perda na impressão</p><div class="value">${fmtNum(c.waste_pct, 1)}%</div>
           <div class="delta">${fmtNum(c.print_waste)} folhas · ${delta(c.waste_pct, p.waste_pct, { upIsGood: false })}</div></div>
-        <div class="tile"><p class="label">Itens em alerta</p><div class="value">${fmtNum(data.alerts)}</div>
-          <div class="delta">${fmtNum(data.maintenance.count)} ${data.maintenance.count === 1 ? 'manutenção' : 'manutenções'} no período</div></div>
+        <a class="tile" href="#/pedidos" style="text-decoration:none;color:inherit"><p class="label">Pedidos entregues</p><div class="value">${fmtNum(data.orders.delivered)}</div>
+          <div class="delta">${fmtNum(data.orders.open)} em andamento${data.orders.late ? html` · <span class="down">${data.orders.late} atrasado(s)</span>` : ''}</div></a>
       </div>
+      <p class="small muted" style="margin-top:10px">${fmtNum(data.alerts)} ${data.alerts === 1 ? 'item' : 'itens'} em alerta · ${fmtNum(data.maintenance.count)} ${data.maintenance.count === 1 ? 'manutenção' : 'manutenções'} no período${data.maintenance.downtime ? ` (${fmtNum(data.maintenance.downtime)} min de máquina parada)` : ''}</p>
 
       <div class="card section">
         <div class="card-head"><h2>Produção por dia</h2>
@@ -69,6 +70,18 @@ export async function render(ctx) {
               <td class="r">${fmtNum(d.waste)}</td><td class="r">${fmtNum(d.packed)}</td><td class="r">${fmtNum(d.packages)}</td></tr>`)}</tbody>
           </table></div>
         </details>
+      </div>
+
+      <div class="card section">
+        <div class="card-head"><h2>Produção por produto</h2><p class="small muted">Folhas impressas e empacotadas de cada modelo no período.</p></div>
+        ${data.by_product.length ? html`<div class="legend">
+            <span><i class="box" style="background:var(--series-1)"></i>Impressas</span>
+            <span><i class="box" style="background:var(--series-2)"></i>Empacotadas</span></div>
+          <div class="chart-box"><canvas data-byprod aria-label="Gráfico de produção por produto"></canvas></div>
+          <details class="data-table"><summary>Ver dados em tabela</summary><div class="table-wrap"><table class="table">
+            <thead><tr><th>Produto</th><th class="r">Impressas</th><th class="r">Empacotadas</th></tr></thead>
+            <tbody>${data.by_product.map((p) => html`<tr><td>${p.name}</td><td class="r">${fmtNum(p.printed)}</td><td class="r">${fmtNum(p.packed)}</td></tr>`)}</tbody>
+          </table></div></details>` : html`<div class="empty">Nenhuma produção no período.</div>`}
       </div>
 
       <div class="card section">
@@ -113,6 +126,7 @@ export async function render(ctx) {
       </div>`);
 
     productionChart($('[data-prod]', el), data.daily);
+    if (data.by_product.length) productChart($('[data-byprod]', el), data.by_product);
     if (withUse.length) coverageChart($('[data-cov]', el), data.items);
     drawItem();
     $$('[data-item]', el).forEach((b) => {

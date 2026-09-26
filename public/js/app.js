@@ -11,6 +11,10 @@ import * as maintenance from './views/maintenance.js';
 import * as logs from './views/logs.js';
 import * as config from './views/config.js';
 import * as more from './views/more.js';
+import * as ordersView from './views/orders.js';
+import * as orderView from './views/order.js';
+import * as orderForm from './views/order-form.js';
+import * as financeView from './views/finance.js';
 import * as pin from './views/pin.js';
 
 const state = { me: null };
@@ -20,8 +24,14 @@ const ROUTES = [
   ['/estoque', stock],
   ['/item/:id', item],
   ['/lancar/:tipo', forms],
-  ['/producao/:id', forms],
+  ['/pedidos', ordersView],
+  ['/pedidos/:tab', ordersView],
+  ['/pedido/novo', orderForm],
+  ['/pedido/:id/editar', orderForm],
+  ['/pedido/:id', orderView],
   ['/painel', dashboard],
+  ['/financeiro', financeView],
+  ['/financeiro/:tab', financeView],
   ['/historico', historyView],
   ['/manutencao', maintenance],
   ['/logs', logs],
@@ -56,8 +66,10 @@ function navItems() {
   return [
     { href: '#/', label: 'Início', icon: 'home', match: ['/'] },
     { href: '#/estoque', label: 'Estoque', icon: 'box', match: ['/estoque', '/item'] },
+    { href: '#/pedidos', label: 'Pedidos', icon: 'truck', match: ['/pedidos', '/pedido'] },
     { href: '#/painel', label: 'Painel', icon: 'chart', match: ['/painel'] },
-    { href: '#/historico', label: 'Histórico', icon: 'clock', match: ['/historico'] },
+    p.includes('financeiro') && { href: '#/financeiro', label: 'Financeiro', icon: 'money', match: ['/financeiro'], side: true },
+    { href: '#/historico', label: 'Histórico', icon: 'clock', match: ['/historico'], side: true },
     { href: '#/manutencao', label: 'Manutenção', icon: 'wrench', match: ['/manutencao'], side: true },
     p.includes('ver_logs') && { href: '#/logs', label: 'Registro de atividades', icon: 'log', match: ['/logs'], side: true },
     p.includes('cadastros') && { href: '#/config', label: 'Configurações', icon: 'settings', match: ['/config'], side: true },
@@ -90,7 +102,7 @@ function renderShell() {
       </div>
       <nav class="bottomnav" aria-label="Navegação principal">
         ${items.filter((n) => !n.side).map((n) => html`<a href="${n.href}" data-match="${n.match.join(',')}">${icon(n.icon)}${n.label}</a>`)}
-        <a href="#/mais" data-match="/mais,/manutencao,/logs,/config,/pin">${icon('menu')}Mais</a>
+        <a href="#/mais" data-match="/mais,/manutencao,/logs,/config,/pin,/historico,/financeiro">${icon('menu')}Mais</a>
       </nav>
     </div>`);
   $('[data-logout]').onclick = logout;

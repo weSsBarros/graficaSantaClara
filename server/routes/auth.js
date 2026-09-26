@@ -4,7 +4,8 @@ const express = require('express');
 const config = require('../config');
 const { audit } = require('../audit');
 const { HttpError, nowIso, num } = require('../util');
-const { ROLES, permsFor, canRunProcess } = require('../permissions');
+const { ROLES, isManager } = require('../permissions');
+const { CATEGORIES } = require('../services/stock');
 const {
   verifyPin, hashPin, validatePin, createSession, destroySession, destroyUserSessions,
   setSessionCookie, clearSessionCookie, requireUser,
@@ -68,30 +69,19 @@ module.exports = function authRoutes(db) {
     res.json({ ok: true });
   });
 
-  // Dados iniciais do app: quem sou, o que posso fazer, processos disponíveis.
+  // Dados iniciais do app: quem sou e o que posso fazer.
   r.get('/me', requireUser, (req, res) => {
     const u = req.user;
-    const processes = db
-      .prepare(
-        `SELECT p.*, i.name AS input_name, i.unit AS input_unit, i.pack_unit AS input_pack_unit,
-                i.pack_size AS input_pack_size, i.quantity AS input_quantity,
-                o.name AS output_name, o.unit AS output_unit
-           FROM processes p
-           JOIN items i ON i.id = p.input_item_id
-           LEFT JOIN items o ON o.id = p.output_item_id
-          WHERE p.active = 1 ORDER BY p.kind DESC, p.name`
-      )
-      .all()
-      .map((p) => ({ ...p, can_run: canRunProcess(u, p) }));
     res.json({
       user: { id: u.id, name: u.name, role: u.role, role_label: ROLES[u.role].label, must_change_pin: !!u.must_change_pin },
-      perms: permsFor(u),
-      processes,
+      perms: u.perms,
+      manager: isManager(u),
       roles: Object.entries(ROLES).map(([id, r]) => ({ id, label: r.label })),
+      categories: CATEGORIES,
       config: {
         self_undo_minutes: config.selfUndoMinutes,
         max_backdate_days: config.maxBackdateDays,
-        telegram: notify.isConfigured(),
+        notify: notify.isConfigured(db),
       },
     });
   });

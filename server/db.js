@@ -139,15 +139,173 @@ const MIGRATIONS = [
   CREATE TRIGGER movements_no_delete BEFORE DELETE ON movements
     BEGIN SELECT RAISE(ABORT, 'Movimentos de estoque não podem ser apagados; use estorno.'); END;
   `,
+
+  // ---------- v2: itens detalhados, pedidos/entrega, clientes e financeiro ----------
+  `
+  -- Itens: sai a lista fixa de categorias (agora validada no sistema) e entram os detalhes
+  -- (modelo, formato, cor, marca, código de barras...), o papel-base dos impressos e
+  -- os limites de alerta configuráveis. SQLite não altera CHECK: a tabela é recriada.
+  CREATE TABLE items_new (
+    id                INTEGER PRIMARY KEY,
+    name              TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    category          TEXT NOT NULL,
+    source            TEXT NOT NULL DEFAULT 'compra' CHECK (source IN ('compra','producao')),
+    unit              TEXT NOT NULL,
+    pack_unit         TEXT,
+    pack_size         REAL,
+    quantity          REAL NOT NULL DEFAULT 0,
+    min_stock         REAL NOT NULL DEFAULT 0,     -- avisar abaixo desta quantidade (0 = não avisa)
+    alert_days        INTEGER NOT NULL DEFAULT 0,  -- avisar quando o saldo cobrir menos de N dias (0 = não avisa)
+    lead_time_days    INTEGER NOT NULL DEFAULT 0,  -- prazo de entrega do fornecedor (sugestão de compra)
+    notify            INTEGER NOT NULL DEFAULT 1,  -- mandar aviso por WhatsApp/e-mail/Telegram
+    model             TEXT,                        -- modelo/linha (ex.: Oferta, Aproveite, Splash)
+    size              TEXT,                        -- formato (ex.: 46x66, 96x64)
+    grammage          REAL,                        -- gramatura (g/m²)
+    color_name        TEXT,
+    color_hex         TEXT,
+    brand             TEXT,
+    code              TEXT,                        -- referência do fornecedor
+    barcode           TEXT,
+    made_from_item_id INTEGER REFERENCES items(id), -- papel usado para imprimir este item
+    last_unit_cost    REAL,                        -- último custo unitário pago
+    notes             TEXT,
+    active            INTEGER NOT NULL DEFAULT 1,
+    alert_state       TEXT NOT NULL DEFAULT 'ok',
+    sort_order        INTEGER NOT NULL DEFAULT 0,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+  );
+  INSERT INTO items_new (id, name, category, source, unit, pack_unit, pack_size, quantity, min_stock, alert_days,
+                         lead_time_days, notes, active, alert_state, sort_order, created_at, updated_at)
+  SELECT id, name,
+         CASE WHEN category = 'papel' AND source = 'producao' THEN 'impresso' ELSE category END,
+         source, unit, pack_unit, pack_size, quantity, min_stock,
+         CASE WHEN source = 'compra' THEN lead_time_days ELSE 0 END,
+         lead_time_days, notes, active, alert_state, sort_order, created_at, updated_at
+    FROM items;
+  UPDATE items_new SET made_from_item_id =
+    (SELECT p.input_item_id FROM processes p WHERE p.kind = 'impressao' AND p.output_item_id = items_new.id LIMIT 1);
+  DROP TABLE items;
+  ALTER TABLE items_new RENAME TO items;
+  CREATE UNIQUE INDEX items_barcode ON items(barcode) WHERE barcode IS NOT NULL;
+
+  -- A tabela processes fica só pelo histórico (v1). Desde a v2, quem pode imprimir/empacotar
+  -- é definido nas permissões por função e o papel-base vem do cadastro de cada impresso.
+
+  CREATE TABLE clients (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    phone      TEXT,
+    email      TEXT,
+    address    TEXT,
+    document   TEXT,
+    notes      TEXT,
+    active     INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  -- Pedidos: aberto -> parcial (parte empacotada) -> pronto -> saiu (para entrega) -> entregue | cancelado
+  CREATE TABLE orders (
+    id             INTEGER PRIMARY KEY,
+    client_id      INTEGER NOT NULL REFERENCES clients(id),
+    status         TEXT NOT NULL DEFAULT 'aberto',
+    due_date       TEXT,
+    notes          TEXT,
+    total          REAL NOT NULL DEFAULT 0,
+    created_by     INTEGER NOT NULL REFERENCES users(id),
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    shipped_at     TEXT,
+    shipped_by     INTEGER REFERENCES users(id),
+    carrier        TEXT,
+    delivered_at   TEXT,
+    delivered_by   INTEGER REFERENCES users(id),
+    received_by    TEXT,
+    delivery_notes TEXT,
+    canceled_at    TEXT,
+    canceled_by    INTEGER REFERENCES users(id),
+    cancel_reason  TEXT
+  );
+  CREATE INDEX orders_status ON orders(status, due_date);
+  CREATE INDEX orders_client ON orders(client_id);
+
+  CREATE TABLE order_items (
+    id         INTEGER PRIMARY KEY,
+    order_id   INTEGER NOT NULL REFERENCES orders(id),
+    item_id    INTEGER NOT NULL REFERENCES items(id),
+    quantity   REAL NOT NULL,
+    unit_price REAL NOT NULL DEFAULT 0,
+    packed     REAL NOT NULL DEFAULT 0
+  );
+  CREATE INDEX order_items_order ON order_items(order_id);
+
+  ALTER TABLE operations ADD COLUMN order_id INTEGER REFERENCES orders(id);
+  ALTER TABLE operations ADD COLUMN order_item_id INTEGER REFERENCES order_items(id);
+  ALTER TABLE operations ADD COLUMN total_cost REAL;
+  CREATE INDEX operations_order ON operations(order_id);
+
+  CREATE TABLE finance_categories (
+    id     INTEGER PRIMARY KEY,
+    kind   TEXT NOT NULL CHECK (kind IN ('despesa','receita')),
+    name   TEXT NOT NULL COLLATE NOCASE,
+    active INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (kind, name)
+  );
+  INSERT INTO finance_categories (kind, name) VALUES
+    ('despesa','Papel'), ('despesa','Tinta'), ('despesa','Chapa'), ('despesa','Outros materiais'),
+    ('despesa','Manutenção'), ('despesa','Energia'), ('despesa','Água'), ('despesa','Aluguel'),
+    ('despesa','Salários'), ('despesa','Transporte / entrega'), ('despesa','Impostos e taxas'),
+    ('despesa','Internet / telefone'), ('despesa','Outras despesas'),
+    ('receita','Vendas'), ('receita','Outras receitas');
+
+  -- Contas a pagar e a receber. paid_at NULL = em aberto. Cancelamento é lógico (fica no histórico).
+  CREATE TABLE finance_entries (
+    id               INTEGER PRIMARY KEY,
+    kind             TEXT NOT NULL CHECK (kind IN ('despesa','receita')),
+    category_id      INTEGER NOT NULL REFERENCES finance_categories(id),
+    description      TEXT NOT NULL,
+    amount           REAL NOT NULL CHECK (amount > 0),
+    date             TEXT NOT NULL,
+    due_date         TEXT,
+    paid_at          TEXT,
+    payment_method   TEXT,
+    counterparty     TEXT,
+    order_id         INTEGER REFERENCES orders(id),
+    operation_id     INTEGER REFERENCES operations(id),
+    recurrence_group TEXT,
+    notes            TEXT,
+    created_by       INTEGER NOT NULL REFERENCES users(id),
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    canceled_at      TEXT,
+    canceled_by      INTEGER REFERENCES users(id),
+    cancel_reason    TEXT
+  );
+  CREATE INDEX finance_date ON finance_entries(date);
+  CREATE INDEX finance_due ON finance_entries(due_date);
+  CREATE INDEX finance_order ON finance_entries(order_id);
+  CREATE INDEX finance_operation ON finance_entries(operation_id);
+  `,
 ];
 
 function migrate(db) {
   const current = db.pragma('user_version', { simple: true });
-  for (let v = current; v < MIGRATIONS.length; v++) {
-    db.transaction(() => {
-      db.exec(MIGRATIONS[v]);
-      db.pragma(`user_version = ${v + 1}`);
-    })();
+  if (current >= MIGRATIONS.length) return;
+  // Recriar tabelas (como na v2) exige as chaves estrangeiras desligadas durante a migração;
+  // no fim de cada etapa conferimos se nenhuma referência ficou quebrada.
+  db.pragma('foreign_keys = OFF');
+  try {
+    for (let v = current; v < MIGRATIONS.length; v++) {
+      db.transaction(() => {
+        db.exec(MIGRATIONS[v]);
+        const broken = db.pragma('foreign_key_check');
+        if (broken.length) throw new Error(`Migração ${v + 1}: referências quebradas em ${broken[0].table}`);
+        db.pragma(`user_version = ${v + 1}`);
+      })();
+    }
+  } finally {
+    db.pragma('foreign_keys = ON');
   }
 }
 
@@ -176,4 +334,4 @@ function setSetting(db, key, value) {
     .run(key, JSON.stringify(value));
 }
 
-module.exports = { openDb, migrate, getSetting, setSetting };
+module.exports = { openDb, migrate, getSetting, setSetting, MIGRATIONS };

@@ -63,10 +63,13 @@ function forecastItem(item, stats, { now = Date.now(), windowDays, coverageDays 
   if (qty <= 0) daysLeft = 0;
   else if (avg > 0) daysLeft = qty / avg;
 
+  // Alertas configuráveis por item (Configurações → Itens):
+  //  - min_stock  > 0: "Estoque baixo" quando o saldo chega a essa quantidade;
+  //  - alert_days > 0: "Repor já"/"Produzir mais" quando o saldo cobre menos que N dias de consumo.
   let status = 'ok';
   if (qty <= 0) status = 'zerado';
   else if (item.min_stock > 0 && qty <= item.min_stock) status = 'baixo';
-  else if (item.source === 'compra' && daysLeft !== null && daysLeft <= item.lead_time_days) status = 'repor';
+  else if (item.alert_days > 0 && daysLeft !== null && daysLeft <= item.alert_days) status = 'repor';
 
   // Sugestão de compra: cobrir o prazo de entrega + `coverageDays` de consumo + o estoque mínimo.
   let suggested = 0;
@@ -77,6 +80,17 @@ function forecastItem(item, stats, { now = Date.now(), windowDays, coverageDays 
     else suggested = Math.ceil(suggested);
   }
 
+  // Para quem ainda não sabe que valores usar: depois de uma semana de uso, o sistema sugere
+  // o estoque mínimo (consumo durante o prazo de entrega + 3 dias de folga) e com quantos dias avisar.
+  let settingsHint = null;
+  if (avg > 0 && ageDays >= 7) {
+    const lead = item.source === 'compra' ? item.lead_time_days : 0;
+    let min = avg * (lead + 3);
+    min = item.pack_size > 0 ? Math.ceil(min / item.pack_size) * item.pack_size : Math.ceil(min);
+    settingsHint = { min_stock: min, alert_days: lead + 5 };
+  }
+
+  const label = qty < 0 ? 'Saldo negativo' : status === 'repor' && item.source === 'producao' ? 'Produzir mais' : STATUS[status].label;
   return {
     avg_daily: round3(avg),
     avg_daily_7d: round3(avg7),
@@ -84,8 +98,9 @@ function forecastItem(item, stats, { now = Date.now(), windowDays, coverageDays 
     days_left: daysLeft === null ? null : Math.round(daysLeft * 10) / 10,
     runout_date: daysLeft === null ? null : localDate(new Date(now + daysLeft * DAY_MS)),
     status,
-    status_label: qty < 0 ? 'Saldo negativo' : STATUS[status].label,
+    status_label: label,
     suggested_order: status === 'ok' ? 0 : round3(suggested),
+    settings_hint: settingsHint,
   };
 }
 

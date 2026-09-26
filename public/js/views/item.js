@@ -1,6 +1,13 @@
-import { html, api, icon, fmtNum, fmtAvg, fmtQty, plural, packText, statusBadge, runoutText, fmtDay, fmtDateTime, CATEGORY_LABELS, $, $$ } from '../lib.js';
+import { html, api, icon, fmtNum, fmtAvg, fmtQty, plural, packText, statusBadge, runoutText, fmtDay, fmtDateTime, brl, colorDot, itemTags, CATEGORY_LABELS, $, $$ } from '../lib.js';
 import { stockChart, consumptionChart, destroyChart } from '../charts.js';
 import { opsList, bindUndo, meter } from './components.js';
+
+function alertRules(item) {
+  const rules = [];
+  if (item.min_stock > 0) rules.push(`abaixo de ${fmtQty(item.min_stock, item.unit)}`);
+  if (item.alert_days > 0) rules.push(`quando cobrir menos de ${item.alert_days} dias`);
+  return rules.length ? rules.join(' ou ') : 'só quando zerar';
+}
 
 export async function render(ctx) {
   const { el, me, params } = ctx;
@@ -12,12 +19,26 @@ export async function render(ctx) {
   const p = me.perms;
   const pack = packText(item, item.quantity);
   let days = 60;
+  const hint = f.settings_hint && (f.settings_hint.min_stock !== item.min_stock || f.settings_hint.alert_days !== item.alert_days) ? f.settings_hint : null;
+  const details = [
+    item.made_from && ['Feito com', html`<a href="#/item/${item.made_from.id}">${item.made_from.name}</a>`],
+    item.model && ['Modelo', item.model],
+    item.size && ['Formato', item.size],
+    item.grammage && ['Gramatura', `${fmtNum(item.grammage)} g/m²`],
+    item.color_name && ['Cor', html`${colorDot(item)}${item.color_name}`],
+    item.brand && ['Marca', item.brand],
+    item.code && ['Referência', item.code],
+    item.barcode && ['Código de barras', item.barcode],
+    item.pack_unit && ['Embalagem', `${item.pack_unit} com ${fmtNum(item.pack_size)} ${plural(item.unit, item.pack_size)}`],
+    item.last_unit_cost > 0 && ['Último custo', `${brl(item.last_unit_cost)} por ${item.unit}`],
+  ].filter(Boolean);
 
   el.innerHTML = String(html`
     <div class="page-head">
       <div>
         <span class="cat">${CATEGORY_LABELS[item.category]}${item.source === 'producao' ? ' · produzido aqui' : ''}${item.active ? '' : ' · DESATIVADO'}</span>
-        <h1 style="margin-top:4px">${item.name}</h1>
+        <h1 style="margin-top:4px">${colorDot(item)}${item.name}</h1>
+        <div style="margin-top:6px">${itemTags(item)}</div>
       </div>
       ${statusBadge(f, item.quantity)}
     </div>
@@ -43,12 +64,18 @@ export async function render(ctx) {
         <div class="stat"><p class="label">Consumo médio por dia</p><div class="value">${fmtAvg(f.avg_daily)}</div><div class="sub">${plural(item.unit, 2)} · últimos ${fmtNum(Math.max(1, Math.round(f.history_days)), 0)} dias</div></div>
         <div class="stat"><p class="label">Média dos últimos 7 dias</p><div class="value">${fmtAvg(f.avg_daily_7d)}</div><div class="sub">${plural(item.unit, 2)} por dia</div></div>
         <div class="stat"><p class="label">Previsão de acabar</p><div class="value">${f.runout_date && item.quantity > 0 ? fmtDay(f.runout_date) : '—'}</div><div class="sub">${f.days_left !== null && item.quantity > 0 ? `~${fmtNum(Math.floor(f.days_left), 0)} dias` : 'sem consumo'}</div></div>
-        <div class="stat"><p class="label">Estoque mínimo</p><div class="value">${fmtNum(item.min_stock)}</div><div class="sub">${item.source === 'compra' ? `reposição em ${item.lead_time_days} dias` : 'produzido internamente'}</div></div>
+        <div class="stat"><p class="label">Prazo do fornecedor</p><div class="value">${item.source === 'compra' ? `${item.lead_time_days} dias` : '—'}</div><div class="sub">${item.source === 'compra' ? 'para entregar' : 'produzido aqui'}</div></div>
       </div>
       <p class="small muted" style="margin-top:12px">
         Última contagem: ${item.last_count ? `${fmtDateTime(item.last_count.occurred_at)} por ${item.last_count.user_name}` : 'nunca'}
-        ${item.notes ? html`<br>${item.notes}` : ''}
       </p>
+      <p class="small muted">Avisos: ${alertRules(item)}${item.notify ? '' : ' · sem envio por WhatsApp/e-mail'}</p>
+      ${hint ? html`<div class="hint-box" style="margin:12px 0 0">${icon('info')} Pelo consumo atual, sugerimos avisar abaixo de <b>${fmtQty(hint.min_stock, item.unit)}</b>
+        ou quando o estoque cobrir menos de <b>${hint.alert_days} dias</b>.
+        ${p.includes('cadastros') ? html`<a href="#/config/itens?edit=${item.id}">Ajustar avisos</a>` : ''}</div>` : ''}
+      ${details.length ? html`<div class="table-wrap" style="margin-top:12px"><table class="table"><tbody>
+        ${details.map(([k, v]) => html`<tr><th style="width:40%">${k}</th><td>${v}</td></tr>`)}</tbody></table></div>` : ''}
+      ${item.notes ? html`<p class="small muted" style="margin-top:8px">${item.notes}</p>` : ''}
     </div>
 
     <div class="card">

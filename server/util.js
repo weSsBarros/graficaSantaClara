@@ -73,7 +73,7 @@ function fmtNum(n) {
 
 function plural(unit, n) {
   if (!unit) return '';
-  if (Math.abs(n) === 1) return unit;
+  if (Math.abs(n) < 2) return unit; // em português: 1 folha, 1,5 litro, 2 folhas
   if (unit.length <= 2 || /[^a-zà-ú]$/i.test(unit)) return unit;
   if (/[aeiouáéíóú]$/i.test(unit)) return `${unit}s`;
   if (/m$/i.test(unit)) return `${unit.slice(0, -1)}ns`;

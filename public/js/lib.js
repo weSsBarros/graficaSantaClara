@@ -47,7 +47,7 @@ export function fmtCompact(n) {
 
 export function plural(unit, n) {
   if (!unit) return '';
-  if (Math.abs(n) === 1) return unit;
+  if (Math.abs(n) < 2) return unit; // em português: 1 folha, 1,5 litro, 2 folhas
   if (unit.length <= 2 || /[^a-zà-ú]$/i.test(unit)) return unit;
   if (/[aeiouáéíóú]$/i.test(unit)) return `${unit}s`;
   if (/m$/i.test(unit)) return `${unit.slice(0, -1)}ns`;
@@ -111,7 +111,35 @@ export function greeting() {
 export const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 export const initials = (name) => String(name || '?').trim().slice(0, 1).toUpperCase();
 
-export const CATEGORY_LABELS = { papel: 'Papel', tinta: 'Tinta', embalagem: 'Embalagem', outro: 'Outro' };
+export const CATEGORY_LABELS = { papel: 'Papel', impresso: 'Impressos', tinta: 'Tinta', chapa: 'Chapa', embalagem: 'Embalagem', outro: 'Outros' };
+
+const brlFmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+/** R$ 1.234,56 */
+export const brl = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : brlFmt.format(n));
+
+/** Bolinha com a cor do item (tintas). */
+export function colorDot(item) {
+  if (!item.color_hex) return '';
+  return html`<i class="swatch" style="background:${item.color_hex}" title="${item.color_name || item.color_hex}"></i>`;
+}
+
+/** Etiquetas de modelo/formato/cor para mostrar junto do nome. */
+export function itemTags(item) {
+  const tags = [item.model, item.size, item.color_name, item.grammage ? `${fmtNum(item.grammage)} g/m²` : null, item.brand].filter(Boolean);
+  if (!tags.length) return '';
+  return html`<span class="tags">${tags.map((t) => html`<span class="tag">${t}</span>`)}</span>`;
+}
+
+export const hasPerm = (me, p) => me.perms.includes(p);
+
+const MONTH_NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+/** "2026-09" -> "setembro de 2026" (ou "set/26" no modo curto). */
+export function fmtMonth(ym, short = false) {
+  const [y, m] = ym.split('-').map(Number);
+  return short ? `${MONTH_NAMES[m - 1].slice(0, 3)}/${String(y).slice(2)}` : `${MONTH_NAMES[m - 1]} de ${y}`;
+}
+/** "2026-09-26" -> "26/09/2026" */
+export const fmtDmy = (day) => (day ? day.split('-').reverse().join('/') : '—');
 
 // ---------- API ----------
 
@@ -215,6 +243,31 @@ export async function promptDialog({ title, body = '', label, placeholder = '', 
   return typeof result === 'string' ? result : null;
 }
 
+/** Diálogo com campos: devolve os valores do formulário (objeto) ou null se voltar. */
+export async function formDialog({ title, body, confirmText = 'Salvar', danger = false }) {
+  const content = html`
+    <form class="dialog-body" data-form>
+      <h2>${title}</h2>
+      ${body}
+    </form>
+    <div class="dialog-actions">
+      <button class="btn secondary" data-no type="button">Voltar</button>
+      <button class="btn ${danger ? 'danger' : ''}" data-yes type="button">${confirmText}</button>
+    </div>`;
+  const result = await openDialog(content, (dlg, done) => {
+    const form = dlg.querySelector('[data-form]');
+    const submit = () => {
+      if (!form.reportValidity()) return;
+      done(Object.fromEntries(new FormData(form)));
+    };
+    dlg.querySelector('[data-no]').onclick = () => done(null);
+    dlg.querySelector('[data-yes]').onclick = submit;
+    form.onsubmit = (e) => { e.preventDefault(); submit(); };
+    setTimeout(() => { const first = form.querySelector('input,select,textarea'); if (first) first.focus(); }, 0);
+  });
+  return result && typeof result === 'object' ? result : null;
+}
+
 export function spinner() {
   return html`<div class="spinner" role="status" aria-label="Carregando"></div>`;
 }
@@ -247,6 +300,13 @@ const P = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.5 3.2-5.5 6.5-5.5s5.9 2 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .7 3.2 2.5 3.5 5.2"/>',
   arrow: '<path d="M4 12h15M14 7l5 5-5 5"/>',
+  truck: '<path d="M2 6h11v10H2zM13 10h4.5l3.5 3.5V16h-8z"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',
+  money: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>',
+  scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 9v6M10 9v6M13 9v6M16.5 9v6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c.8-4 4-6 8-6s7.2 2 8 6"/>',
 };
 const S = {
   ok: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.8 12.4l2.8 2.8 5.6-5.6" stroke="#fff"/>',

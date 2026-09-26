@@ -1,12 +1,14 @@
-// Configurações (só Dono/Administração): itens, processos, pessoas e sistema.
+// Configurações (Dono/Administração): itens, pessoas e permissões, avisos e sistema.
 import {
-  html, api, icon, fmtNum, fmtDateTime, plural, parseNum, toast, toastError, promptDialog, confirmDialog, CATEGORY_LABELS, $, $$,
+  html, api, icon, fmtNum, fmtDateTime, plural, parseNum, toast, toastError, promptDialog, confirmDialog,
+  colorDot, CATEGORY_LABELS, hasPerm, $, $$,
 } from '../lib.js';
+import { scanBarcode } from '../scanner.js';
 
 const TABS = [
   ['itens', 'Itens do estoque'],
-  ['processos', 'Processos'],
-  ['pessoas', 'Pessoas'],
+  ['pessoas', 'Pessoas e permissões'],
+  ['avisos', 'Avisos'],
   ['sistema', 'Sistema'],
 ];
 
@@ -14,98 +16,184 @@ export async function render(ctx) {
   const { el, me, params } = ctx;
   const tab = params.tab || 'itens';
   ctx.setTitle('Configurações', { back: true });
-  if (!me.perms.includes('cadastros')) throw new Error('Só Dono e Administração acessam as configurações.');
+  if (!hasPerm(me, 'cadastros')) throw new Error('Só Dono e Administração acessam as configurações.');
   el.innerHTML = String(html`
     <div class="page-title"><h1>Configurações</h1></div>
     <nav class="tabs">${TABS.map(([k, l]) => html`<a href="#/config/${k}" class="${k === tab ? 'active' : ''}">${l}</a>`)}</nav>
     <div data-tab></div>`);
   const box = $('[data-tab]', el);
-  const views = { itens: itemsTab, processos: processesTab, pessoas: peopleTab, sistema: systemTab };
+  const views = { itens: itemsTab, pessoas: peopleTab, avisos: notifyTab, sistema: systemTab };
   await (views[tab] || itemsTab)(box, ctx);
 }
 
 const formData = (form) => Object.fromEntries(new FormData(form));
+const num = (s) => (s === '' || s === undefined || s === null ? undefined : parseNum(s));
 
 // ---------- itens ----------
 
 async function itemsTab(box, ctx) {
-  const items = await api('/items?all=1');
+  const [items, sugg] = await Promise.all([api('/items?all=1'), api('/suggestions')]);
   const editId = ctx.query.edit;
-  if (editId) return itemForm(box, ctx, editId === 'novo' ? null : items.find((i) => String(i.id) === editId));
+  if (editId) {
+    const item = editId === 'novo' ? null : items.find((i) => String(i.id) === editId);
+    const full = item ? await api(`/items/${item.id}`) : null;
+    return itemForm(box, ctx, full, items, sugg);
+  }
+  const alertText = (i) => [i.min_stock > 0 ? `< ${fmtNum(i.min_stock)}` : null, i.alert_days > 0 ? `< ${i.alert_days} dias` : null].filter(Boolean).join(' ou ') || 'só zerado';
 
   box.innerHTML = String(html`
-    <div class="row between" style="margin-bottom:12px">
-      <p class="muted small">Papéis, tintas e outros materiais controlados.</p>
+    <div class="row between wrap" style="margin-bottom:12px">
+      <p class="muted small">Papéis, impressos, tintas, chapas e outros materiais. Clique em editar para ajustar detalhes e alertas.</p>
       <a class="btn" href="#/config/itens?edit=novo">${icon('plus')} Novo item</a>
     </div>
     <div class="card"><div class="table-wrap"><table class="table">
-      <thead><tr><th>Item</th><th>Categoria</th><th>Unidade</th><th class="r">Mínimo</th><th class="r">Reposição</th><th>Situação</th><th></th></tr></thead>
+      <thead><tr><th>Item</th><th>Categoria</th><th>Unidade</th><th>Avisar quando</th><th>Situação</th><th></th></tr></thead>
       <tbody>${items.map((i) => html`<tr>
-        <td><a href="#/item/${i.id}">${i.name}</a></td>
-        <td>${CATEGORY_LABELS[i.category]}${i.source === 'producao' ? ' (produzido)' : ''}</td>
+        <td>${colorDot(i)}<a href="#/item/${i.id}">${i.name}</a>${i.barcode ? html` <span class="xs muted" title="Tem código de barras">${icon('scan')}</span>` : ''}</td>
+        <td>${CATEGORY_LABELS[i.category] || i.category}</td>
         <td>${i.unit}${i.pack_unit ? ` · ${i.pack_unit} de ${fmtNum(i.pack_size)}` : ''}</td>
-        <td class="r">${fmtNum(i.min_stock)}</td>
-        <td class="r">${i.source === 'compra' ? `${i.lead_time_days} dias` : '—'}</td>
+        <td>${alertText(i)}${i.notify ? '' : html` <span class="tag">sem envio</span>`}</td>
         <td>${i.active ? 'Ativo' : html`<span class="tag">Desativado</span>`}</td>
         <td><a class="btn ghost sm" href="#/config/itens?edit=${i.id}">${icon('edit')} Editar</a></td></tr>`)}</tbody>
     </table></div></div>`);
 }
 
-function itemForm(box, ctx, item) {
+function itemForm(box, ctx, item, items, sugg) {
   const isNew = !item;
-  const v = item || { category: 'papel', source: 'compra', unit: 'folha', min_stock: 0, lead_time_days: 7, active: 1, sort_order: 0 };
+  const v = item || { category: 'papel', source: 'compra', unit: 'folha', min_stock: 0, alert_days: 10, lead_time_days: 7, notify: 1, active: 1, sort_order: 0 };
+  const papers = items.filter((i) => i.category === 'papel' && i.source === 'compra');
+  const hint = item && item.forecast && item.forecast.settings_hint;
+  const uniq = (list) => list.filter((x, i, a) => x && a.indexOf(x) === i);
   box.innerHTML = String(html`
-    <form class="card" data-form style="max-width:720px">
-      <h2 style="margin-bottom:16px">${isNew ? 'Novo item' : `Editar: ${item.name}`}</h2>
-      <div class="form-grid cols-2">
-        <label class="field full"><span>Nome</span><input class="input" name="name" value="${v.name || ''}" maxlength="80" required placeholder="Ex.: Tinta preta"></label>
-        <label class="field"><span>Categoria</span><select class="input" name="category">
-          ${Object.entries(CATEGORY_LABELS).map(([k, l]) => html`<option value="${k}" ${v.category === k ? 'selected' : ''}>${l}</option>`)}</select></label>
-        <label class="field"><span>Origem</span><select class="input" name="source">
-          <option value="compra" ${v.source === 'compra' ? 'selected' : ''}>Comprado de fornecedor</option>
-          <option value="producao" ${v.source === 'producao' ? 'selected' : ''}>Produzido aqui (ex.: folha impressa)</option></select></label>
-        <label class="field"><span>Unidade de controle</span><input class="input" name="unit" value="${v.unit}" list="dl-units" maxlength="20" required>
-          <span class="hint">No singular: folha, litro, kg, cartucho...</span></label>
-        <div class="form-grid cols-2" style="gap:0 10px">
-          <label class="field"><span>Embalagem <span class="muted">(opcional)</span></span><input class="input" name="pack_unit" value="${v.pack_unit || ''}" list="dl-packs" maxlength="20" placeholder="resma"></label>
-          <label class="field"><span>Quantas vêm nela</span><input class="input" name="pack_size" value="${v.pack_size ?? ''}" inputmode="decimal" placeholder="500"></label>
+    <form class="card" data-form style="max-width:820px">
+      <h2 style="margin-bottom:16px">${isNew ? 'Novo item' : html`Editar: ${colorDot(v)}${item.name}`}</h2>
+      <fieldset class="group"><legend>Identificação</legend>
+        <div class="form-grid cols-2">
+          <label class="field full"><span>Nome</span><input class="input" name="name" value="${v.name || ''}" maxlength="80" required placeholder="Ex.: Oferta 46x66, Tinta vermelha"></label>
+          <label class="field"><span>Categoria</span><select class="input" name="category" data-cat>
+            ${Object.entries(CATEGORY_LABELS).map(([k, l]) => html`<option value="${k}" ${v.category === k ? 'selected' : ''}>${l}</option>`)}</select></label>
+          <label class="field"><span>Origem</span><select class="input" name="source" data-source>
+            <option value="compra" ${v.source === 'compra' ? 'selected' : ''}>Comprado de fornecedor</option>
+            <option value="producao" ${v.source === 'producao' ? 'selected' : ''}>Produzido aqui (impresso)</option></select></label>
+          <label class="field" data-made><span>Feito com (papel usado na impressão)</span>
+            <select class="input" name="made_from_item_id"><option value="">—</option>
+              ${papers.map((p) => html`<option value="${p.id}" ${p.id === v.made_from_item_id ? 'selected' : ''}>${p.name}</option>`)}</select>
+            <span class="hint">Na impressão, o sistema desconta este papel automaticamente.</span></label>
         </div>
-        <label class="field"><span>Estoque mínimo</span><input class="input" name="min_stock" value="${v.min_stock}" inputmode="decimal" required>
-          <span class="hint">Abaixo disso o item fica "Estoque baixo".</span></label>
-        <label class="field"><span>Prazo de reposição (dias)</span><input class="input" name="lead_time_days" value="${v.lead_time_days}" inputmode="numeric">
-          <span class="hint">Quanto tempo o fornecedor leva para entregar. Usado no alerta "Repor já".</span></label>
-        ${isNew ? html`<label class="field"><span>Estoque atual <span class="muted">(opcional)</span></span><input class="input" name="initial_quantity" inputmode="decimal" placeholder="0">
-          <span class="hint">Quantidade que existe hoje, na unidade de controle.</span></label>` : ''}
-        <label class="field"><span>Ordem na lista</span><input class="input" name="sort_order" value="${v.sort_order}" inputmode="numeric"></label>
+      </fieldset>
+
+      <fieldset class="group"><legend>Detalhes</legend>
+        <div class="form-grid cols-2">
+          <label class="field" data-model><span>Modelo / linha</span><input class="input" name="model" value="${v.model || ''}" list="dl-models" maxlength="60" placeholder="Ex.: Oferta, Aproveite, Splash"></label>
+          <label class="field" data-size><span>Formato</span><input class="input" name="size" value="${v.size || ''}" list="dl-sizes" maxlength="30" placeholder="Ex.: 46x66"></label>
+          <div class="field" data-color><span class="label">Cor</span>
+            <div class="input-group"><input class="input" name="color_name" value="${v.color_name || ''}" maxlength="40" placeholder="Ex.: Amarelo">
+              <input type="color" name="color_hex" value="${v.color_hex || '#f5c400'}" style="width:56px;min-height:48px;border:1px solid var(--axis);border-radius:12px;padding:4px;background:var(--surface)" aria-label="Escolher a cor"></div></div>
+          <label class="field" data-grammage><span>Gramatura (g/m²)</span><input class="input" name="grammage" value="${v.grammage ?? ''}" inputmode="decimal"></label>
+          <label class="field"><span>Marca</span><input class="input" name="brand" value="${v.brand || ''}" list="dl-brands" maxlength="60"></label>
+          <label class="field"><span>Referência do fornecedor</span><input class="input" name="code" value="${v.code || ''}" maxlength="60"></label>
+          <div class="field"><span class="label">Código de barras</span>
+            <div class="input-group"><input class="input" name="barcode" value="${v.barcode || ''}" maxlength="64" inputmode="numeric">
+              <button type="button" class="btn secondary" data-scan title="Ler com a câmera">${icon('scan')}<span class="sr-only">Ler com a câmera</span></button></div>
+            <span class="hint">Para achar o item lendo a embalagem na hora da entrada.</span></div>
+        </div>
+      </fieldset>
+
+      <fieldset class="group"><legend>Unidade e estoque</legend>
+        <div class="form-grid cols-2">
+          <label class="field"><span>Unidade de controle</span><input class="input" name="unit" value="${v.unit}" list="dl-units" maxlength="20" required>
+            <span class="hint">No singular: folha, litro, chapa, kg...</span></label>
+          <div class="form-grid cols-2" style="gap:0 10px">
+            <label class="field"><span>Embalagem <span class="muted">(opcional)</span></span><input class="input" name="pack_unit" value="${v.pack_unit || ''}" list="dl-packs" maxlength="20" placeholder="resma"></label>
+            <label class="field"><span>Quantas vêm nela</span><input class="input" name="pack_size" value="${v.pack_size ?? ''}" inputmode="decimal" placeholder="500"></label>
+          </div>
+          ${isNew ? html`<label class="field"><span>Estoque atual <span class="muted">(opcional)</span></span><input class="input" name="initial_quantity" inputmode="decimal" placeholder="0">
+            <span class="hint">Quantidade que existe hoje, na unidade de controle.</span></label>` : ''}
+          <label class="field" data-lead><span>Prazo do fornecedor para entregar (dias)</span><input class="input" name="lead_time_days" value="${v.lead_time_days}" inputmode="numeric"></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="group"><legend>Quando avisar</legend>
+        ${hint ? html`<div class="hint-box">${icon('info')} Pelo consumo das últimas semanas, sugerimos: avisar abaixo de <b>${fmtNum(hint.min_stock)} ${plural(v.unit, hint.min_stock)}</b>
+          ou quando durar menos de <b>${hint.alert_days} dias</b>. <button type="button" class="btn ghost sm" data-use-hint>Usar sugestão</button></div>`
+          : html`<p class="hint" style="margin:0 0 12px">Sem histórico ainda: depois de uma semana de uso o sistema sugere valores com base no consumo.</p>`}
+        <div class="form-grid cols-2">
+          <label class="field"><span>Avisar quando o estoque durar menos de (dias)</span><input class="input" name="alert_days" value="${v.alert_days}" inputmode="numeric">
+            <span class="hint">Calculado pelo consumo médio. 0 = não avisar por dias.</span></label>
+          <label class="field"><span>Avisar quando tiver menos de (quantidade)</span><input class="input" name="min_stock" value="${v.min_stock}" inputmode="decimal">
+            <span class="hint">Quantidade fixa, na unidade de controle. 0 = não avisar por quantidade.</span></label>
+        </div>
+        <label class="check"><input type="checkbox" name="notify" ${v.notify ? 'checked' : ''}> Enviar o aviso por WhatsApp / e-mail / Telegram (configure em Avisos)</label>
+      </fieldset>
+
+      <div class="form-grid cols-2">
         <label class="field full"><span>Observações</span><textarea class="input" name="notes" maxlength="500">${v.notes || ''}</textarea></label>
-        ${isNew ? '' : html`<label class="check full"><input type="checkbox" name="active" ${v.active ? 'checked' : ''}> Item ativo (desmarque para esconder sem apagar o histórico)</label>`}
+        <label class="field"><span>Ordem na lista</span><input class="input" name="sort_order" value="${v.sort_order}" inputmode="numeric"></label>
+        ${isNew ? '' : html`<label class="check"><input type="checkbox" name="active" ${v.active ? 'checked' : ''}> Item ativo (desmarque para esconder sem apagar o histórico)</label>`}
       </div>
       <div class="row wrap" style="margin-top:12px">
         <button class="btn" type="submit">Salvar</button>
         <a class="btn secondary" href="#/config/itens">Cancelar</a>
       </div>
     </form>
-    <datalist id="dl-units">${['folha', 'litro', 'kg', 'unidade', 'cartucho', 'lata', 'rolo', 'pacote', 'metro'].map((u) => html`<option value="${u}">`)}</datalist>
-    <datalist id="dl-packs">${['resma', 'caixa', 'pacote', 'fardo', 'galão', 'lata'].map((u) => html`<option value="${u}">`)}</datalist>`);
+    <datalist id="dl-units">${['folha', 'litro', 'kg', 'chapa', 'unidade', 'cartucho', 'lata', 'rolo', 'pacote'].map((u) => html`<option value="${u}">`)}</datalist>
+    <datalist id="dl-packs">${['resma', 'caixa', 'pacote', 'fardo', 'galão', 'lata'].map((u) => html`<option value="${u}">`)}</datalist>
+    <datalist id="dl-models">${uniq(['Oferta', 'Aproveite', 'Splash', ...sugg.models]).map((u) => html`<option value="${u}">`)}</datalist>
+    <datalist id="dl-sizes">${uniq(['46x66', '96x64', ...sugg.sizes]).map((u) => html`<option value="${u}">`)}</datalist>
+    <datalist id="dl-brands">${sugg.brands.map((u) => html`<option value="${u}">`)}</datalist>`);
+
   const form = $('[data-form]', box);
+  const toggle = () => {
+    const cat = form.elements.category.value;
+    const src = form.elements.source.value;
+    $('[data-made]', box).classList.toggle('hidden', src !== 'producao');
+    $('[data-lead]', box).classList.toggle('hidden', src !== 'compra');
+    $('[data-color]', box).classList.toggle('hidden', cat !== 'tinta');
+    $('[data-grammage]', box).classList.toggle('hidden', !['papel', 'impresso'].includes(cat));
+    for (const sel of ['[data-model]', '[data-size]']) $(sel, box).classList.toggle('hidden', ['tinta', 'chapa'].includes(cat));
+  };
+  $('[data-cat]', box).onchange = () => {
+    if (form.elements.category.value === 'impresso') form.elements.source.value = 'producao';
+    toggle();
+  };
+  $('[data-source]', box).onchange = toggle;
+  toggle();
+  const useHint = $('[data-use-hint]', box);
+  if (useHint) {
+    useHint.onclick = () => {
+      form.elements.min_stock.value = hint.min_stock;
+      form.elements.alert_days.value = hint.alert_days;
+      toast('Sugestão aplicada. Clique em Salvar.');
+    };
+  }
+  $('[data-scan]', box).onclick = async () => {
+    const code = await scanBarcode();
+    if (code) form.elements.barcode.value = code;
+  };
   form.onsubmit = async (e) => {
     e.preventDefault();
     const d = formData(form);
-    const num = (s) => (s === '' || s === undefined ? undefined : parseNum(s));
+    const isTinta = d.category === 'tinta';
     const body = {
       ...d,
       pack_unit: d.pack_unit || null,
       pack_size: d.pack_unit ? num(d.pack_size) : null,
       min_stock: num(d.min_stock) ?? 0,
-      lead_time_days: num(d.lead_time_days) ?? 0,
+      alert_days: num(d.alert_days) ?? 0,
+      lead_time_days: d.source === 'compra' ? num(d.lead_time_days) ?? 0 : 0,
       sort_order: num(d.sort_order) ?? 0,
+      grammage: ['papel', 'impresso'].includes(d.category) ? num(d.grammage) ?? null : null,
+      color_name: isTinta ? d.color_name || null : null,
+      color_hex: isTinta && d.color_name ? d.color_hex : null,
+      made_from_item_id: d.source === 'producao' && d.made_from_item_id ? Number(d.made_from_item_id) : null,
       initial_quantity: num(d.initial_quantity),
+      notify: form.elements.notify.checked,
       active: isNew ? true : form.elements.active.checked,
+      barcode: d.barcode || null,
     };
     try {
       await api(isNew ? '/items' : `/items/${item.id}`, { method: isNew ? 'POST' : 'PUT', body });
       toast('Item salvo.');
-      await ctx.refreshMe();
       ctx.go('#/config/itens');
     } catch (err) {
       toastError(err);
@@ -113,77 +201,12 @@ function itemForm(box, ctx, item) {
   };
 }
 
-// ---------- processos ----------
-
-async function processesTab(box, ctx) {
-  const [procs, items] = await Promise.all([api('/processes'), api('/items?all=1')]);
-  const roles = ctx.me.roles;
-  const editId = ctx.query.edit;
-  const roleLabel = (r) => (roles.find((x) => x.id === r) || { label: r }).label;
-
-  if (editId) {
-    const p = editId === 'novo' ? null : procs.find((x) => String(x.id) === editId);
-    const v = p || { kind: 'impressao', roles: '', active: 1 };
-    const sel = (name, value, allowEmpty) => html`<select class="input" name="${name}">
-      ${allowEmpty ? html`<option value="">— nenhum —</option>` : ''}
-      ${items.map((i) => html`<option value="${i.id}" ${i.id === value ? 'selected' : ''}>${i.name}</option>`)}</select>`;
-    box.innerHTML = String(html`
-      <form class="card" data-form style="max-width:640px">
-        <h2 style="margin-bottom:16px">${p ? `Editar: ${p.name}` : 'Novo processo'}</h2>
-        <label class="field"><span>Nome</span><input class="input" name="name" value="${v.name || ''}" required maxlength="60" placeholder="Ex.: Impressão"></label>
-        <label class="field"><span>Tipo</span><select class="input" name="kind">
-          <option value="impressao" ${v.kind === 'impressao' ? 'selected' : ''}>Impressão (consome um item e gera outro, com perda)</option>
-          <option value="empacotamento" ${v.kind === 'empacotamento' ? 'selected' : ''}>Empacotamento (separa em pacotes por cliente)</option></select></label>
-        <label class="field"><span>Item consumido</span>${sel('input_item_id', v.input_item_id, false)}</label>
-        <label class="field"><span>Item gerado <span class="muted">(opcional)</span></span>${sel('output_item_id', v.output_item_id, true)}
-          <span class="hint">Na impressão: a folha impressa. No empacotamento, se escolher um item (ex.: "Pacotes prontos"), cada pacote entra nele.</span></label>
-        <div class="field"><span class="label">Quem pode registrar</span>
-          ${roles.filter((r) => !['dono', 'admin'].includes(r.id)).map((r) => html`<label class="check"><input type="checkbox" name="roles" value="${r.id}" ${String(v.roles).split(',').includes(r.id) ? 'checked' : ''}> ${r.label}</label>`)}
-          <span class="hint">Dono e Administração sempre podem.</span></div>
-        ${p ? html`<label class="check"><input type="checkbox" name="active" ${v.active ? 'checked' : ''}> Processo ativo</label>` : ''}
-        <div class="row wrap" style="margin-top:12px"><button class="btn" type="submit">Salvar</button>
-          <a class="btn secondary" href="#/config/processos">Cancelar</a></div>
-      </form>`);
-    const form = $('[data-form]', box);
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      const body = {
-        name: form.elements.name.value,
-        kind: form.elements.kind.value,
-        input_item_id: Number(form.elements.input_item_id.value),
-        output_item_id: form.elements.output_item_id.value ? Number(form.elements.output_item_id.value) : null,
-        roles: $$('input[name=roles]:checked', form).map((x) => x.value),
-        active: p ? form.elements.active.checked : true,
-      };
-      try {
-        await api(p ? `/processes/${p.id}` : '/processes', { method: p ? 'PUT' : 'POST', body });
-        toast('Processo salvo.');
-        await ctx.refreshMe();
-        ctx.go('#/config/processos');
-      } catch (err) {
-        toastError(err);
-      }
-    };
-    return;
-  }
-
-  box.innerHTML = String(html`
-    <div class="row between" style="margin-bottom:12px">
-      <p class="muted small">Etapas de produção que viram botões na tela inicial de quem pode registrá-las.</p>
-      <a class="btn" href="#/config/processos?edit=novo">${icon('plus')} Novo processo</a>
-    </div>
-    <div class="card"><ul class="list">${procs.map((p) => html`<li class="row between wrap">
-      <div><b>${p.name}</b> ${p.active ? '' : html`<span class="tag">Desativado</span>`}
-        <div class="small muted">${p.kind_label}: ${p.input_name} → ${p.output_name || 'sem item gerado'}</div>
-        <div class="small muted">Quem registra: ${p.roles ? p.roles.split(',').map(roleLabel).join(', ') : 'só Dono/Administração'}</div></div>
-      <a class="btn ghost sm" href="#/config/processos?edit=${p.id}">${icon('edit')} Editar</a></li>`)}</ul></div>`);
-}
-
-// ---------- pessoas ----------
+// ---------- pessoas e permissões ----------
 
 async function peopleTab(box, ctx) {
-  const users = await api('/users');
+  const [users, rolesData] = await Promise.all([api('/users'), api('/roles')]);
   const roles = ctx.me.roles;
+  const editable = rolesData.roles.filter((r) => !rolesData.manager_roles.includes(r.id));
   box.innerHTML = String(html`
     <div class="grid-2">
       <div class="card">
@@ -212,30 +235,29 @@ async function peopleTab(box, ctx) {
         <button class="btn" type="submit">${icon('plus')} Cadastrar</button>
       </form>
     </div>
-    <div class="card section">
-      <h2 style="margin-bottom:8px">O que cada função pode fazer</h2>
-      <div class="table-wrap"><table class="table">
-        <thead><tr><th>Função</th><th>Pode</th></tr></thead>
-        <tbody>
-          <tr><td>Dono / Administração</td><td>Tudo: lançamentos, contagem de estoque, estornos, cadastros, configurações, backup e registro de atividades.</td></tr>
-          <tr><td>Secretaria</td><td>Entradas, retiradas e ver o registro de atividades.</td></tr>
-          <tr><td>Impressor</td><td>Impressão, entradas, retiradas (ex.: tinta) e manutenção das máquinas.</td></tr>
-          <tr><td>Empacotadora</td><td>Empacotamento e retiradas.</td></tr>
-          <tr><td>Todos</td><td>Ver estoque, painel e histórico. Desfazer o próprio lançamento em até ${ctx.me.config.self_undo_minutes} minutos.</td></tr>
-        </tbody></table></div>
-    </div>`);
+
+    <form class="card section" data-perms>
+      <div class="card-head"><h2>O que cada função pode fazer</h2>
+        <p class="small muted">Dono e Administração podem tudo, sempre (inclusive contagem de estoque, estornos, cadastros e configurações). Todos podem ver estoque, pedidos, painel e histórico.</p></div>
+      <div class="table-wrap"><table class="table matrix">
+        <thead><tr><th>Permissão</th>${editable.map((r) => html`<th>${r.label}</th>`)}</tr></thead>
+        <tbody>${Object.entries(rolesData.perms).map(([p, label]) => html`<tr><td>${label}</td>
+          ${editable.map((r) => html`<td><input type="checkbox" name="${r.id}" value="${p}" ${r.perms.includes(p) ? 'checked' : ''} aria-label="${r.label}: ${label}"></td>`)}</tr>`)}</tbody>
+      </table></div>
+      <button class="btn" type="submit" style="margin-top:12px">Salvar permissões</button>
+    </form>`);
 
   const reload = () => peopleTab(box, ctx);
+  $('[data-perms]', box).onsubmit = async (e) => {
+    e.preventDefault();
+    const body = { roles: {} };
+    for (const r of editable) body.roles[r.id] = $$(`input[name="${r.id}"]:checked`, box).map((x) => x.value);
+    try { await api('/roles', { method: 'PUT', body }); toast('Permissões salvas. Valem a partir da próxima tela que cada pessoa abrir.'); } catch (err) { toastError(err); }
+  };
   $$('[data-role]', box).forEach((s) => {
     s.onchange = async () => {
-      try {
-        await api(`/users/${s.dataset.role}`, { method: 'PUT', body: { role: s.value } });
-        toast('Função alterada.');
-        reload();
-      } catch (err) {
-        toastError(err);
-        reload();
-      }
+      try { await api(`/users/${s.dataset.role}`, { method: 'PUT', body: { role: s.value } }); toast('Função alterada.'); } catch (err) { toastError(err); }
+      reload();
     };
   });
   $$('[data-reset]', box).forEach((b) => {
@@ -246,59 +268,168 @@ async function peopleTab(box, ctx) {
         label: 'PIN provisório (4 a 8 números)', inputmode: 'numeric', confirmText: 'Redefinir',
       });
       if (!pin) return;
-      try {
-        await api(`/users/${b.dataset.reset}/reset-pin`, { method: 'POST', body: { pin } });
-        toast(`PIN de ${b.dataset.name} redefinido.`);
-        reload();
-      } catch (err) { toastError(err); }
+      try { await api(`/users/${b.dataset.reset}/reset-pin`, { method: 'POST', body: { pin } }); toast(`PIN de ${b.dataset.name} redefinido.`); reload(); } catch (err) { toastError(err); }
     };
   });
   $$('[data-toggle]', box).forEach((b) => {
     b.onclick = async () => {
       const activate = b.dataset.active !== '1';
       if (!activate && !(await confirmDialog({ title: `Desativar ${b.dataset.name}?`, body: 'A pessoa não consegue mais entrar. O histórico dela continua guardado.', confirmText: 'Desativar', danger: true }))) return;
-      try {
-        await api(`/users/${b.dataset.toggle}`, { method: 'PUT', body: { active: activate } });
-        toast(activate ? 'Pessoa reativada.' : 'Pessoa desativada.');
-        reload();
-      } catch (err) { toastError(err); }
+      try { await api(`/users/${b.dataset.toggle}`, { method: 'PUT', body: { active: activate } }); toast(activate ? 'Pessoa reativada.' : 'Pessoa desativada.'); reload(); } catch (err) { toastError(err); }
     };
   });
   const form = $('[data-new]', box);
   form.onsubmit = async (e) => {
     e.preventDefault();
+    try { await api('/users', { method: 'POST', body: formData(form) }); toast('Pessoa cadastrada.'); reload(); } catch (err) { toastError(err); }
+  };
+}
+
+// ---------- avisos ----------
+
+const WEEKDAYS = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+
+async function notifyTab(box, ctx) {
+  const data = await api('/settings/notify');
+  const c = data.config;
+  const status = Object.fromEntries(data.channels.map((x) => [x.id, x.ready]));
+  const badge = (id) => (status[id] ? html`<span class="badge ok">${icon('ok')}Ativo</span>` : html`<span class="tag">Desligado</span>`);
+  const secret = (ch, field, label, ph = '') => html`<label class="field"><span>${label}</span>
+    <input class="input" name="${ch}.${field}" type="password" autocomplete="new-password" placeholder="${c[ch][`${field}_saved`] || ph}">
+    ${c[ch][`${field}_saved`] ? html`<span class="hint">Deixe em branco para manter o que está salvo.</span>` : ''}</label>`;
+  const text = (ch, field, label, ph = '', mode = 'text') => html`<label class="field"><span>${label}</span>
+    <input class="input" name="${ch}.${field}" value="${c[ch][field] ?? ''}" placeholder="${ph}" autocomplete="off" inputmode="${mode}"></label>`;
+  const enabled = (ch, label) => html`<label class="check"><input type="checkbox" name="${ch}.enabled" ${c[ch].enabled ? 'checked' : ''}> ${label}</label>`;
+  const testBtn = (ch) => html`<button type="button" class="btn secondary sm" data-test="${ch}">Enviar teste</button>`;
+  const hours = Array.from({ length: 16 }, (_, i) => i + 6);
+
+  box.innerHTML = String(html`
+    <form data-form>
+      <div class="card">
+        <div class="card-head"><h2>O que avisar</h2></div>
+        ${Object.entries(data.events).map(([k, label]) => html`<label class="check"><input type="checkbox" name="events.${k}" ${c.events[k] ? 'checked' : ''}> ${label}</label>`)}
+        <div class="form-grid cols-2" style="margin-top:12px">
+          <label class="field"><span>Relatório semanal: dia</span><select class="input" name="weekly.weekday">
+            ${WEEKDAYS.map((d, i) => html`<option value="${i}" ${Number(c.weekly.weekday) === i ? 'selected' : ''}>${d}</option>`)}</select></label>
+          <label class="field"><span>Relatório semanal: a partir de</span><select class="input" name="weekly.hour">
+            ${hours.map((h) => html`<option value="${h}" ${Number(c.weekly.hour) === h ? 'selected' : ''}>${h}h</option>`)}</select></label>
+          <label class="field"><span>Resumo diário a partir de</span><select class="input" name="daily.hour">
+            ${hours.map((h) => html`<option value="${h}" ${Number(c.daily.hour) === h ? 'selected' : ''}>${h}h</option>`)}</select></label>
+          <label class="check"><input type="checkbox" name="weekly.include_finance" ${c.weekly.include_finance ? 'checked' : ''}> Incluir o financeiro no relatório semanal</label>
+        </div>
+        <p class="hint">O alerta de estoque sai na hora em que o item entra em alerta (só itens com "enviar aviso" marcado no cadastro).</p>
+      </div>
+
+      <div class="card section">
+        <div class="card-head"><h2>WhatsApp — Evolution API</h2>${badge('evolution')}</div>
+        <p class="small muted" style="margin-bottom:12px">Gratuita e de código aberto, instalada no mesmo servidor do sistema (veja o guia de hospedagem). Use um chip só para a gráfica: é uma conexão não oficial com o WhatsApp.</p>
+        ${enabled('evolution', 'Usar a Evolution API')}
+        <div class="form-grid cols-2" style="margin-top:8px">
+          ${text('evolution', 'url', 'Endereço da API', 'https://whatsapp.seudominio.com.br', 'url')}
+          ${text('evolution', 'instance', 'Nome da instância', 'grafica')}
+          ${secret('evolution', 'apikey', 'Chave da API (apikey)')}
+          ${text('evolution', 'numbers', 'Números que recebem (com DDD)', '98 98888-7777, 98 97777-6666', 'tel')}
+        </div>${testBtn('evolution')}
+      </div>
+
+      <div class="card section">
+        <div class="card-head"><h2>WhatsApp — CallMeBot</h2>${badge('callmebot')}</div>
+        <p class="small muted" style="margin-bottom:12px">Gratuito e sem servidor. Cada pessoa manda "I allow callmebot to send me messages" para o número do CallMeBot e recebe uma apikey. É para uso pessoal e às vezes fica lotado.</p>
+        ${enabled('callmebot', 'Usar o CallMeBot')}
+        <div style="margin-top:8px">${secret('callmebot', 'recipients', 'Destinatários (telefone:apikey, separados por vírgula)', '98988887777:123456, 98977776666:654321')}</div>
+        ${testBtn('callmebot')}
+      </div>
+
+      <div class="card section">
+        <div class="card-head"><h2>E-mail</h2>${badge('email')}</div>
+        <p class="small muted" style="margin-bottom:12px">Pode ser um Gmail com "senha de app" (smtp.gmail.com, porta 465) ou um serviço gratuito de envio (ex.: Brevo).</p>
+        ${enabled('email', 'Enviar por e-mail')}
+        <div class="form-grid cols-2" style="margin-top:8px">
+          ${text('email', 'host', 'Servidor SMTP', 'smtp.gmail.com')}
+          ${text('email', 'port', 'Porta', '465', 'numeric')}
+          ${text('email', 'user', 'Usuário', 'graficasantaclara@gmail.com', 'email')}
+          ${secret('email', 'pass', 'Senha (senha de app)')}
+          ${text('email', 'from', 'Remetente', 'Gráfica Santa Clara <graficasantaclara@gmail.com>')}
+          ${text('email', 'to', 'Quem recebe (separe por vírgula)', 'marcia@..., joatan@...', 'email')}
+        </div>
+        <label class="check"><input type="checkbox" name="email.secure" ${c.email.secure ? 'checked' : ''}> Conexão segura direta (porta 465)</label>
+        ${testBtn('email')}
+      </div>
+
+      <div class="card section">
+        <div class="card-head"><h2>Telegram</h2>${badge('telegram')}</div>
+        <p class="small muted" style="margin-bottom:12px">Gratuito e estável. Crie um bot com o @BotFather e adicione-o a um grupo.</p>
+        ${enabled('telegram', 'Usar o Telegram')}
+        <div class="form-grid cols-2" style="margin-top:8px">
+          ${secret('telegram', 'token', 'Token do bot')}
+          ${text('telegram', 'chat_id', 'ID do grupo/conversa', '-1001234567890')}
+        </div>${testBtn('telegram')}
+      </div>
+
+      <div class="row wrap section"><button class="btn" type="submit">Salvar avisos</button></div>
+    </form>
+
+    <div class="card section">
+      <div class="card-head"><h2>Prévia do relatório semanal</h2>
+        <div class="row"><button class="btn secondary sm" data-preview>Atualizar prévia</button><button class="btn sm" data-send-report>Enviar agora</button></div></div>
+      <pre class="report" data-report>Clique em "Atualizar prévia".</pre>
+    </div>`);
+
+  const form = $('[data-form]', box);
+  const collect = () => {
+    const body = {};
+    for (const input of form.elements) {
+      if (!input.name || !input.name.includes('.')) continue;
+      const [ch, field] = input.name.split('.');
+      body[ch] = body[ch] || {};
+      body[ch][field] = input.type === 'checkbox' ? input.checked : input.value;
+    }
+    return body;
+  };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api('/settings/notify', { method: 'PUT', body: collect() }); toast('Avisos salvos.'); notifyTab(box, ctx); } catch (err) { toastError(err); }
+  };
+  $$('[data-test]', box).forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api('/settings/notify', { method: 'PUT', body: collect() });
+        const r = await api('/settings/test-notification', { method: 'POST', body: { channel: b.dataset.test } });
+        const res = r.results[0];
+        toast(res && res.sent ? 'Mensagem de teste enviada!' : `Não enviou: ${res ? res.reason : 'canal desligado'}`, { error: !(res && res.sent), ms: 8000 });
+      } catch (err) { toastError(err); }
+    };
+  });
+  const reportBox = $('[data-report]', box);
+  $('[data-preview]', box).onclick = async () => {
+    try { const r = await api('/reports/weekly'); reportBox.textContent = r.text + (r.daily ? `\n\n— Resumo diário de hoje —\n${r.daily}` : ''); } catch (err) { toastError(err); }
+  };
+  $('[data-send-report]', box).onclick = async () => {
     try {
-      await api('/users', { method: 'POST', body: formData(form) });
-      toast('Pessoa cadastrada.');
-      reload();
+      const r = await api('/reports/weekly/send', { method: 'POST', body: {} });
+      toast(r.sent ? 'Relatório enviado.' : 'Nenhum canal de aviso ativo ou o envio falhou (veja o registro de atividades).', { error: !r.sent });
     } catch (err) { toastError(err); }
   };
 }
 
 // ---------- sistema ----------
 
-async function systemTab(box, ctx) {
+async function systemTab(box) {
   const s = await api('/settings');
-  const canSys = ctx.me.perms.includes('sistema');
   box.innerHTML = String(html`
     <div class="grid-2">
       <form class="card" data-form>
         <h2 style="margin-bottom:14px">Previsões</h2>
         ${Object.entries(s.settings).map(([k, x]) => html`<label class="field"><span>${x.label}</span>
-          <input class="input" name="${k}" value="${x.value}" inputmode="numeric" ${canSys ? '' : 'disabled'}>
-          <span class="hint">Entre ${x.min} e ${x.max} ${plural('dia', 2)}.</span></label>`)}
-        ${canSys ? html`<button class="btn" type="submit">Salvar</button>` : ''}
+          <input class="input" name="${k}" value="${x.value}" inputmode="numeric">
+          <span class="hint">Entre ${x.min} e ${x.max} dias.</span></label>`)}
+        <button class="btn" type="submit">Salvar</button>
       </form>
       <div class="card">
-        <h2 style="margin-bottom:10px">Avisos no celular (Telegram)</h2>
-        ${s.telegram
-          ? html`<p>Ativo. Quando um item entra em alerta, uma mensagem é enviada ao grupo configurado.</p>
-              ${canSys ? html`<button class="btn secondary" data-test style="margin-top:12px">Enviar mensagem de teste</button>` : ''}`
-          : html`<p class="muted">Desativado. Para receber os alertas de estoque no celular, siga o passo a passo "Avisos pelo Telegram" no arquivo LEIAME/README do sistema.</p>`}
-        <h2 style="margin:24px 0 10px">Cópia de segurança</h2>
+        <h2 style="margin-bottom:10px">Cópia de segurança</h2>
         <p class="muted small">O sistema guarda automaticamente uma cópia por dia (últimos 30 dias) na pasta <code>data/backups</code>.
-          Baixe uma cópia de vez em quando e guarde fora deste computador (pen drive, Google Drive).</p>
-        ${canSys ? html`<a class="btn secondary" style="margin-top:12px" href="/api/backup">${icon('download')} Baixar cópia agora</a>` : ''}
+          Baixe uma cópia de vez em quando e guarde fora do servidor (pen drive, Google Drive).</p>
+        <a class="btn secondary" style="margin-top:12px" href="/api/backup">${icon('download')} Baixar cópia agora</a>
       </div>
     </div>`);
   const form = $('[data-form]', box);
@@ -306,18 +437,6 @@ async function systemTab(box, ctx) {
     e.preventDefault();
     const body = {};
     for (const [k, v] of Object.entries(formData(form))) body[k] = Number(v);
-    try {
-      await api('/settings', { method: 'PUT', body });
-      toast('Configurações salvas.');
-    } catch (err) { toastError(err); }
+    try { await api('/settings', { method: 'PUT', body }); toast('Configurações salvas.'); } catch (err) { toastError(err); }
   };
-  const test = $('[data-test]', box);
-  if (test) {
-    test.onclick = async () => {
-      try {
-        const r = await api('/settings/test-notification', { method: 'POST', body: {} });
-        toast(r.sent ? 'Mensagem enviada! Confira o Telegram.' : `Não foi possível enviar: ${r.reason}`, { error: !r.sent });
-      } catch (err) { toastError(err); }
-    };
-  }
 }

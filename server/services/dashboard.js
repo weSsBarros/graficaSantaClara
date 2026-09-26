@@ -75,22 +75,33 @@ function dashboard(db, { days = 30, now = Date.now() } = {}) {
     };
   });
 
-  // Consumo diário por item (para os gráficos de consumo, ex.: tinta).
-  const consRows = db
-    .prepare(
-      `SELECT date(m.occurred_at, '${off}') AS day, m.item_id, SUM(-m.delta) AS qty
-         FROM movements m JOIN operations o ON o.id = m.operation_id
-        WHERE m.delta < 0 AND o.type IN ${CONSUMPTION_TYPES} AND o.reversed_by_id IS NULL
-          AND m.occurred_at >= ? AND m.occurred_at < ?
-        GROUP BY day, m.item_id`
-    )
-    .all(fromIso, toIso);
-
   const items = itemsWithForecast(db, { now });
-  const consumption = items.map((it) => ({
-    item_id: it.id,
-    total: round3(consRows.filter((r) => r.item_id === it.id).reduce((a, r) => a + r.qty, 0)),
-  }));
+
+  // Produção por produto impresso: quanto foi impresso (entrou) e empacotado (saiu) no período.
+  const byProduct = db
+    .prepare(
+      `SELECT i.id, i.name, i.unit,
+              SUM(CASE WHEN o.type = 'impressao' AND m.delta > 0 THEN m.delta ELSE 0 END) AS printed,
+              SUM(CASE WHEN o.type = 'empacotamento' THEN o.output_qty ELSE 0 END) AS packed
+         FROM movements m JOIN operations o ON o.id = m.operation_id JOIN items i ON i.id = m.item_id
+        WHERE i.source = 'producao' AND o.type IN ('impressao','empacotamento') AND o.reversed_by_id IS NULL
+          AND m.occurred_at >= ? AND m.occurred_at < ?
+        GROUP BY i.id ORDER BY printed DESC`
+    )
+    .all(fromIso, toIso)
+    .map((r) => ({ ...r, printed: round3(r.printed), packed: round3(r.packed) }));
+
+  // Pedidos: entregues no período, em andamento e atrasados agora.
+  const ordersStats = {
+    delivered: db.prepare("SELECT COUNT(*) AS n FROM orders WHERE status = 'entregue' AND delivered_at >= ? AND delivered_at < ?").get(fromIso, toIso).n,
+    created: db.prepare('SELECT COUNT(*) AS n FROM orders WHERE created_at >= ? AND created_at < ?').get(fromIso, toIso).n,
+    ...db
+      .prepare(
+        `SELECT COUNT(*) AS open, COALESCE(SUM(due_date < ?), 0) AS late, COALESCE(SUM(status IN ('pronto','saiu')), 0) AS ready
+           FROM orders WHERE status IN ('aberto','parcial','pronto','saiu')`
+      )
+      .get(today),
+  };
 
   const machine = db
     .prepare(
@@ -108,7 +119,8 @@ function dashboard(db, { days = 30, now = Date.now() } = {}) {
     previous,
     daily,
     items,
-    consumption,
+    by_product: byProduct,
+    orders: ordersStats,
     alerts: items.filter((i) => i.forecast.status !== 'ok').length,
     maintenance: { ...machine, last: lastMaintenance || null },
   };

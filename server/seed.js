@@ -15,53 +15,71 @@ const USERS = [
   { name: 'Eulir', role: 'empacotador' },
 ];
 
-// Cadastro inicial sugerido. Tudo pode ser alterado depois em Configurações > Itens.
-const ITEMS = [
-  {
-    name: 'Folha branca', category: 'papel', source: 'compra', unit: 'folha', pack_unit: 'resma', pack_size: 500,
-    min_stock: 10000, lead_time_days: 7, sort_order: 1,
-    notes: 'Papel virgem, antes de passar na impressora.',
-  },
-  {
-    name: 'Folha amarela (impressa)', category: 'papel', source: 'producao', unit: 'folha', pack_unit: null, pack_size: null,
-    min_stock: 2000, lead_time_days: 0, sort_order: 2,
-    notes: 'Folha que já saiu da impressora e aguarda empacotamento.',
-  },
-  {
-    name: 'Tinta amarela', category: 'tinta', source: 'compra', unit: 'litro', pack_unit: null, pack_size: null,
-    min_stock: 2, lead_time_days: 10, sort_order: 3,
-    notes: 'Ajuste a unidade (litro, kg, cartucho, lata...) conforme a tinta usada na máquina.',
-  },
-];
+const MODELS = ['Oferta', 'Aproveite', 'Splash'];
+const SIZES = ['46x66', '96x64'];
+
+// Cadastro inicial. Tudo pode ser alterado em Configurações → Itens (inclusive os alertas:
+// começam avisando quando o estoque cobrir menos de 10 dias, e sem limite por quantidade).
+function seedItems() {
+  const items = [];
+  SIZES.forEach((size, i) => {
+    items.push({
+      key: `papel-${size}`, name: `Papel branco ${size}`, category: 'papel', source: 'compra', unit: 'folha', size,
+      alert_days: 10, lead_time_days: 7, sort_order: 10 + i, notes: 'Papel virgem, antes de passar na impressora.',
+    });
+  });
+  SIZES.forEach((size, i) => {
+    MODELS.forEach((model, j) => {
+      items.push({
+        key: `${model}-${size}`, name: `${model} ${size}`, category: 'impresso', source: 'producao', unit: 'folha',
+        model, size, made_from: `papel-${size}`, alert_days: 0, lead_time_days: 0, sort_order: 20 + i * 10 + j,
+        notes: 'Folha impressa (amarela), aguardando empacotamento.',
+      });
+    });
+  });
+  items.push({
+    key: 'tinta-amarela', name: 'Tinta amarela', category: 'tinta', source: 'compra', unit: 'litro',
+    color_name: 'Amarelo', color_hex: '#f5c400', alert_days: 10, lead_time_days: 10, sort_order: 50,
+  });
+  items.push({
+    key: 'chapa', name: 'Chapa de impressão', category: 'chapa', source: 'compra', unit: 'chapa',
+    alert_days: 10, lead_time_days: 7, sort_order: 60,
+  });
+  return items;
+}
 
 function seedIfEmpty(db, { log = console.log } = {}) {
   const hasUsers = db.prepare('SELECT COUNT(*) AS n FROM users').get().n > 0;
   if (hasUsers) return false;
   const now = nowIso();
+  const items = seedItems();
   db.transaction(() => {
     const insUser = db.prepare('INSERT INTO users (name, role, pin_hash, must_change_pin, created_at) VALUES (?, ?, ?, 1, ?)');
     const pinHash = hashPin(INITIAL_PIN);
     for (const u of USERS) insUser.run(u.name, u.role, pinHash, now);
 
     const insItem = db.prepare(
-      `INSERT INTO items (name, category, source, unit, pack_unit, pack_size, min_stock, lead_time_days, notes, sort_order, created_at, updated_at)
-       VALUES (@name, @category, @source, @unit, @pack_unit, @pack_size, @min_stock, @lead_time_days, @notes, @sort_order, @now, @now)`
+      `INSERT INTO items (name, category, source, unit, model, size, color_name, color_hex, alert_days, lead_time_days,
+                          made_from_item_id, notes, sort_order, created_at, updated_at)
+       VALUES (@name, @category, @source, @unit, @model, @size, @color_name, @color_hex, @alert_days, @lead_time_days,
+               @made_from_item_id, @notes, @sort_order, @now, @now)`
     );
-    const ids = ITEMS.map((it) => Number(insItem.run({ ...it, now }).lastInsertRowid));
-
-    const insProc = db.prepare(
-      'INSERT INTO processes (name, kind, input_item_id, output_item_id, roles, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    );
-    insProc.run('Impressão', 'impressao', ids[0], ids[1], 'impressor', now);
-    insProc.run('Empacotamento', 'empacotamento', ids[1], null, 'empacotador', now);
-
+    const ids = {};
+    for (const it of items) {
+      ids[it.key] = Number(
+        insItem.run({
+          model: null, size: null, color_name: null, color_hex: null, notes: null, ...it,
+          made_from_item_id: it.made_from ? ids[it.made_from] : null, now,
+        }).lastInsertRowid
+      );
+    }
     audit(db, {
       action: 'instalacao',
-      summary: `Sistema instalado: ${USERS.length} pessoas, ${ITEMS.length} itens e 2 processos cadastrados.`,
+      summary: `Sistema instalado: ${USERS.length} pessoas e ${items.length} itens cadastrados.`,
     });
   })();
   log(`[instalação] Banco criado. PIN inicial de todos: ${INITIAL_PIN} (cada pessoa troca no primeiro acesso).`);
   return true;
 }
 
-module.exports = { seedIfEmpty, INITIAL_PIN, USERS, ITEMS };
+module.exports = { seedIfEmpty, INITIAL_PIN, USERS, MODELS, SIZES };

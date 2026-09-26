@@ -13,6 +13,8 @@ export async function render(ctx) {
     </div>
     <div class="card">
       <ul class="menu">
+        ${p.includes('financeiro') ? html`<li><a href="#/financeiro">${icon('money')}Financeiro</a></li>` : ''}
+        <li><a href="#/historico">${icon('clock')}Histórico de lançamentos</a></li>
         <li><a href="#/manutencao">${icon('wrench')}Manutenção das máquinas</a></li>
         ${p.includes('ver_logs') ? html`<li><a href="#/logs">${icon('log')}Registro de atividades</a></li>` : ''}
         ${p.includes('cadastros') ? html`<li><a href="#/config">${icon('settings')}Configurações (itens, pessoas...)</a></li>` : ''}
