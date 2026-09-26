@@ -1,0 +1,22 @@
+{
+  "name": "grafica-santa-clara",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Controle de estoque, produção e logs da Gráfica Santa Clara (São Luís - MA)",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "demo": "node server/demo.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "chart.js": "^4.5.1",
+    "express": "^5.2.1"
+  }
+}
