@@ -277,6 +277,34 @@ test('financeiro: só com permissão; despesa recorrente, pagamento e resumo do 
   assert.equal((await m.get('/api/finance/entries.csv')).status, 200);
 });
 
+test('dono acompanha tudo (inclusive o financeiro), mas não lança nem altera nada', async () => {
+  const j = await client().login('Joatan');
+  const me = ok(await j.get('/api/me'), 200);
+  assert.equal(me.manager, false);
+  assert.ok(me.perms.includes('ver_financeiro'));
+  assert.ok(!me.perms.includes('financeiro'));
+  ok(await j.get('/api/finance/summary'), 200);
+  ok(await j.get('/api/finance/entries'), 200);
+  ok(await j.get('/api/logs'), 200);
+  assert.ok(ok(await j.get(`/api/orders/${orderId}`), 200).total > 0); // vê os valores dos pedidos
+  assert.ok('last_unit_cost' in ok(await j.get('/api/items'), 200).find((i) => i.name === PAPEL));
+  const attempts = [
+    ['/api/finance/entries', { kind: 'despesa', category_id: 1, description: 'x', amount: 1, date: '2026-01-01' }],
+    ['/api/ops/entrada', { item_id: itemId(PAPEL), quantity: 1 }],
+    ['/api/ops/impressao', { product_id: itemId(OFERTA), input_qty: 1 }],
+    ['/api/ops/ajuste', { item_id: itemId(PAPEL), counted: 1 }],
+    ['/api/orders', { client_name: 'X', items: [{ item_id: itemId(OFERTA), quantity: 1 }] }],
+    ['/api/items', { name: 'Z', category: 'outro', unit: 'un' }],
+    ['/api/users', { name: 'Z', role: 'secretaria', pin: '4826' }],
+  ];
+  for (const [path, body] of attempts) assert.equal((await j.post(path, body)).status, 403, path);
+  assert.equal((await j.put('/api/roles', { roles: {} })).status, 403);
+  assert.equal((await j.put('/api/settings/notify', {})).status, 403);
+  assert.equal((await j.get('/api/users')).status, 403);
+  const op = db.prepare("SELECT id FROM operations WHERE type = 'impressao' AND reversed_by_id IS NULL ORDER BY id DESC").get();
+  assert.equal((await j.post(`/api/ops/${op.id}/estorno`, { reason: 'x' })).status, 403);
+});
+
 test('estorno de compra com valor cancela a despesa', async () => {
   const m = await client().login('Márcia');
   const r = ok(await m.post('/api/ops/entrada', { item_id: itemId('Chapa de impressão'), quantity: 10, total_cost: 300, paid: true }));
@@ -477,7 +505,7 @@ test('troca de PIN: recusa PIN fraco e libera o acesso normal', async () => {
   await client().login('Eulir', '4071');
 });
 
-test('não deixa o sistema sem Dono/Administração', async () => {
+test('não deixa o sistema sem ninguém na Administração', async () => {
   const marcia = await client().login('Márcia');
   ok(await marcia.put(`/api/users/${userId('Joatan')}`, { role: 'secretaria' }), 200);
   assert.equal((await marcia.put(`/api/users/${userId('Márcia')}`, { role: 'secretaria' })).status, 400);
@@ -521,4 +549,26 @@ test('banco da versão 1 é migrado sem perder dados', () => {
   assert.equal(old.pragma('foreign_key_check').length, 0);
   assert.equal(old.pragma('foreign_keys', { simple: true }), 1);
   old.close();
+});
+
+test('comando de emergência redefine o PIN direto no servidor', async () => {
+  const os = require('node:os');
+  const path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const { verifyPin } = require('../server/auth');
+  const file = path.join(os.tmpdir(), `gsc-pin-${process.pid}.db`);
+  const tmp = openDb(file);
+  seedIfEmpty(tmp, { log: () => {} });
+  tmp.close();
+  const out = execFileSync(process.execPath, [path.join(__dirname, '..', 'server', 'reset-pin.js'), 'Márcia', '5827'], {
+    env: { ...process.env, DB_PATH: file },
+  }).toString();
+  assert.match(out, /redefinido/);
+  const check = openDb(file);
+  const u = check.prepare("SELECT * FROM users WHERE name = 'Márcia'").get();
+  assert.ok(verifyPin('5827', u.pin_hash));
+  assert.equal(u.must_change_pin, 1);
+  assert.ok(check.prepare("SELECT 1 FROM audit_log WHERE action = 'pin_redefinido'").get());
+  check.close();
+  for (const f of [file, `${file}-wal`, `${file}-shm`]) require('node:fs').rmSync(f, { force: true });
 });

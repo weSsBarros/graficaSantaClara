@@ -11,13 +11,14 @@ module.exports = function financeRoutes(db) {
   const r = express.Router();
   const ctx = (req) => ({ ip: req.ip });
   const id = (req) => num(req.params.id, 'lançamento', { integer: true });
-  const perm = requirePerm('financeiro');
+  const perm = requirePerm('financeiro'); // lançar e alterar
+  const view = requirePerm('ver_financeiro'); // só ver
 
-  r.get('/finance/summary', perm, (req, res) => {
+  r.get('/finance/summary', view, (req, res) => {
     res.json(finance.summary(db, { month: req.query.month }));
   });
 
-  r.get('/finance/entries', perm, (req, res) => {
+  r.get('/finance/entries', view, (req, res) => {
     res.json(finance.listEntries(db, req.query));
   });
 
@@ -42,7 +43,7 @@ module.exports = function financeRoutes(db) {
     res.json(db.transaction(() => finance.cancelEntry(db, req.user, id(req), reason, ctx(req)))());
   });
 
-  r.get('/finance/categories', perm, (_req, res) => {
+  r.get('/finance/categories', view, (_req, res) => {
     res.json({
       categories: db.prepare('SELECT * FROM finance_categories ORDER BY kind, active DESC, name').all(),
       payment_methods: finance.PAYMENT_METHODS,
@@ -80,7 +81,7 @@ module.exports = function financeRoutes(db) {
     res.json({ ok: true });
   });
 
-  r.get('/finance/entries.csv', perm, (req, res) => {
+  r.get('/finance/entries.csv', view, (req, res) => {
     const { entries } = finance.listEntries(db, { ...req.query, limit: 100000 });
     const dmy = (d) => (d ? d.split('-').reverse().join('/') : '');
     sendCsv(

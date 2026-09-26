@@ -14,7 +14,7 @@ com **registro de tudo o que foi feito**, **alertas de estoque** (inclusive por 
 
 | Área | O que tem |
 |---|---|
-| **Estoque** | Papéis por formato (46x66, 96x64), impressos por modelo (Oferta, Aproveite, Splash), tintas com cor, chapas e outros materiais. Saldo em unidade e embalagem (ex.: `20.000 folhas (80 resmas)`), busca e leitura de **código de barras** pela câmera. |
+| **Estoque** | Papéis por formato (46x66, 96x64), cartazes por modelo (Oferta, Aproveite, Splash), tintas de várias cores (cadastro rápido de cor nova), chapas e outros materiais. Saldo em unidade e embalagem (ex.: `20.000 folhas (80 resmas)`), busca e leitura de **código de barras** pela câmera. |
 | **Alertas** | Para cada item a administração escolhe **quando avisar**: quando o estoque durar menos de *N* dias (calculado pelo consumo) e/ou quando ficar abaixo de uma quantidade. Sem os valores ainda? Depois de uma semana de uso o sistema **sugere** os números. Aviso na tela e, se configurado, por **WhatsApp, e-mail ou Telegram**, com sugestão de quanto comprar. |
 | **Produção** | **Impressão** (Natan): escolhe o produto (ex.: Oferta 46x66), o sistema desconta o papel branco certo, registra a perda e as **chapas e a tinta** usadas. **Empacotamento** (Eulir): escolhe o **pedido** e o produto, pacotes × folhas por pacote. |
 | **Pedidos até a entrega** | Cliente, produtos, quantidades, preços e data combinada. Andamento do empacotamento por produto, **saída para entrega** (quem levou), **entrega** (quem recebeu), pedidos atrasados em destaque, cadastro de clientes. |
@@ -32,14 +32,19 @@ As permissões abaixo são o padrão; a administração muda em **Configuraçõe
 
 | Pessoa | Função | Pode (padrão) |
 |---|---|---|
-| **Joatan** | Dono | Tudo |
-| **Márcia** | Administração | Tudo: lançamentos, contagem de estoque, estornos, financeiro, cadastros, permissões, avisos, backup |
+| **Joatan** | Dono | **Ver tudo** — estoque, pedidos, painel, histórico, financeiro e registro de atividades — sem lançar nem alterar nada |
+| **Márcia** | Administração | Tudo, e é a única que mexe no sistema: contagem de estoque, estornos, financeiro, cadastros, permissões, avisos, backup |
 | **Gabrielle** | Secretaria | Pedidos e clientes, saída/entrega, entradas de material, retiradas, registro de atividades |
 | **Natan** | Impressor | Impressão, entradas, retiradas (tinta, chapa), manutenção da máquina |
 | **Eulir** | Empacotadora | Empacotamento, saída/entrega, retiradas |
 
 Todos veem estoque, pedidos, painel e histórico, e podem **desfazer o próprio lançamento em até
-30 minutos**. O financeiro (e os valores dos pedidos) só aparece para quem tem permissão.
+30 minutos**. O financeiro (e os valores dos pedidos) só aparece para quem tem permissão — por padrão,
+Márcia (vê e lança) e Joatan (só vê).
+
+**Esqueceu o PIN?** A Márcia gera um PIN provisório para qualquer pessoa em Configurações → Pessoas.
+Se for a própria Márcia (a única da Administração), rode no servidor:
+`npm run pin -- "Márcia" 5827` — ela entra com esse PIN e cria um novo.
 
 ## O fluxo da gráfica no sistema
 
@@ -83,8 +88,8 @@ Veja o guia **[docs/HOSPEDAGEM.md](docs/HOSPEDAGEM.md)**. Resumo:
    **Oferta / Aproveite / Splash** nos dois formatos, **Tinta amarela** (litro) e **Chapa de impressão**.
 2. O **PIN inicial de todo mundo é `2580`**. No primeiro acesso cada pessoa cria o próprio PIN.
 3. A Márcia confere os itens em **Configurações → Itens**: embalagem (ex.: resma com quantas folhas),
-   cores das tintas, código de barras, prazo do fornecedor e **quando avisar**.
-   Pode cadastrar outras tintas (cores), papéis e materiais.
+   código de barras, prazo do fornecedor e **quando avisar**. As **cores de tinta** se cadastram no
+   quadro "Cores de tinta" da mesma tela (nome da cor + seletor de cor + litros que existem hoje).
 4. A Márcia faz a **Contagem de estoque** de cada item (o que existe fisicamente hoje).
 5. Em **Configurações → Avisos**, escolha como receber os alertas (WhatsApp, e-mail ou Telegram).
 6. Em **Financeiro**, lance as contas fixas (aluguel, energia, salários...) com "repetir todo mês".

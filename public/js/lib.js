@@ -111,7 +111,7 @@ export function greeting() {
 export const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 export const initials = (name) => String(name || '?').trim().slice(0, 1).toUpperCase();
 
-export const CATEGORY_LABELS = { papel: 'Papel', impresso: 'Impressos', tinta: 'Tinta', chapa: 'Chapa', embalagem: 'Embalagem', outro: 'Outros' };
+export const CATEGORY_LABELS = { papel: 'Papel', impresso: 'Cartazes', tinta: 'Tinta', chapa: 'Chapa', embalagem: 'Embalagem', outro: 'Outros' };
 
 const brlFmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 /** R$ 1.234,56 */

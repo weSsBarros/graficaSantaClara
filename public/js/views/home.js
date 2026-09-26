@@ -20,6 +20,19 @@ function quickActions(me, data) {
   return list;
 }
 
+/** Para quem só acompanha (ex.: Dono): atalhos para ver, sem lançar nada. */
+function followLinks(me, data) {
+  const o = data.orders;
+  return [
+    { href: '#/painel', icon: 'chart', label: 'Painel', sub: 'Produção, perdas e previsões', primary: true },
+    hasPerm(me, 'ver_financeiro') && { href: '#/financeiro', icon: 'money', label: 'Financeiro', sub: 'Resultado do mês, contas a pagar e a receber' },
+    { href: '#/pedidos', icon: 'truck', label: 'Pedidos', sub: o.late ? `${o.open} em andamento · ${o.late} atrasado(s)` : `${o.open} em andamento` },
+    { href: '#/estoque', icon: 'box', label: 'Estoque', sub: data.alerts.length ? `${data.alerts.length} item(ns) em alerta` : 'Tudo em dia' },
+    hasPerm(me, 'ver_logs') && { href: '#/logs', icon: 'log', label: 'Registro de atividades', sub: 'Quem fez o quê e quando' },
+    { href: '#/historico', icon: 'clock', label: 'Histórico de lançamentos', sub: 'Entradas, impressões, empacotamentos' },
+  ].filter(Boolean);
+}
+
 export async function render(ctx) {
   const { el, me } = ctx;
   ctx.setTitle('Início');
@@ -27,7 +40,8 @@ export async function render(ctx) {
   if (!ctx.isCurrent()) return;
   const t = data.today;
   const o = data.orders;
-  const actions = quickActions(me, data);
+  const register = quickActions(me, data);
+  const actions = register.length ? register : followLinks(me, data);
 
   el.innerHTML = String(html`
     <div class="page-head">
@@ -52,7 +66,7 @@ export async function render(ctx) {
       <span><b>${o.late} ${o.late === 1 ? 'pedido atrasado' : 'pedidos atrasados'}</b> — passou da data de entrega combinada. Ver pedidos.</span></a>` : ''}
 
     <div class="section">
-      <h2>O que você quer registrar?</h2>
+      <h2>${register.length ? 'O que você quer registrar?' : 'Acompanhar'}</h2>
       <div class="actions">
         ${actions.map((a) => html`
           <a class="action ${a.primary ? 'primary' : ''}" href="${a.href}">
@@ -73,9 +87,10 @@ export async function render(ctx) {
       </div>
     </div>
 
-    <div class="section card">
+    ${register.length ? html`<div class="section card">
       <div class="card-head"><h2>Meus últimos lançamentos</h2><a class="small" href="#/historico?user_id=${me.user.id}">Ver todos</a></div>
       <div data-ops>${opsList(data.my_operations, me, { showUser: false })}</div>
-    </div>`);
-  bindUndo($('[data-ops]', el), () => render(ctx));
+    </div>` : ''}`);
+  const ops = $('[data-ops]', el);
+  if (ops) bindUndo(ops, () => render(ctx));
 }

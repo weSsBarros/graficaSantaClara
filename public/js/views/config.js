@@ -1,4 +1,4 @@
-// Configurações (Dono/Administração): itens, pessoas e permissões, avisos e sistema.
+// Configurações (só Administração): itens, pessoas e permissões, avisos e sistema.
 import {
   html, api, icon, fmtNum, fmtDateTime, plural, parseNum, toast, toastError, promptDialog, confirmDialog,
   colorDot, CATEGORY_LABELS, hasPerm, $, $$,
@@ -16,7 +16,7 @@ export async function render(ctx) {
   const { el, me, params } = ctx;
   const tab = params.tab || 'itens';
   ctx.setTitle('Configurações', { back: true });
-  if (!hasPerm(me, 'cadastros')) throw new Error('Só Dono e Administração acessam as configurações.');
+  if (!hasPerm(me, 'cadastros')) throw new Error('Só a Administração acessa as configurações.');
   el.innerHTML = String(html`
     <div class="page-title"><h1>Configurações</h1></div>
     <nav class="tabs">${TABS.map(([k, l]) => html`<a href="#/config/${k}" class="${k === tab ? 'active' : ''}">${l}</a>`)}</nav>
@@ -41,9 +41,22 @@ async function itemsTab(box, ctx) {
   }
   const alertText = (i) => [i.min_stock > 0 ? `< ${fmtNum(i.min_stock)}` : null, i.alert_days > 0 ? `< ${i.alert_days} dias` : null].filter(Boolean).join(' ou ') || 'só zerado';
 
+  const inks = items.filter((i) => i.category === 'tinta');
   box.innerHTML = String(html`
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head"><h2>Cores de tinta</h2><p class="small muted">Cada cor é um item do estoque, controlado em litros. Para mudar alertas, marca ou código, use Editar na lista abaixo.</p></div>
+      <div class="row wrap" style="gap:8px;margin-bottom:12px">
+        ${inks.length ? inks.map((i) => html`<a class="chip" href="#/config/itens?edit=${i.id}" style="text-decoration:none">${colorDot(i)}${i.name}${i.active ? '' : ' (desativada)'}</a>`) : html`<span class="muted small">Nenhuma tinta cadastrada.</span>`}
+      </div>
+      <form class="row wrap" data-ink style="gap:8px;align-items:flex-end">
+        <label style="flex:1;min-width:180px"><span class="xs muted">Nova cor</span><input class="input" name="color_name" placeholder="Ex.: Vermelho" maxlength="40" required></label>
+        <label><span class="xs muted">Cor</span><input type="color" name="color_hex" value="#d62828" style="display:block;width:56px;min-height:48px;border:1px solid var(--axis);border-radius:12px;padding:4px;background:var(--surface)" aria-label="Escolher a cor"></label>
+        <label style="width:140px"><span class="xs muted">Litros hoje</span><input class="input" name="initial_quantity" inputmode="decimal" placeholder="0"></label>
+        <button class="btn" type="submit">${icon('plus')} Adicionar cor</button>
+      </form>
+    </div>
     <div class="row between wrap" style="margin-bottom:12px">
-      <p class="muted small">Papéis, impressos, tintas, chapas e outros materiais. Clique em editar para ajustar detalhes e alertas.</p>
+      <p class="muted small">Papéis, cartazes, tintas, chapas e outros materiais. Clique em editar para ajustar detalhes e alertas.</p>
       <a class="btn" href="#/config/itens?edit=novo">${icon('plus')} Novo item</a>
     </div>
     <div class="card"><div class="table-wrap"><table class="table">
@@ -56,6 +69,30 @@ async function itemsTab(box, ctx) {
         <td>${i.active ? 'Ativo' : html`<span class="tag">Desativado</span>`}</td>
         <td><a class="btn ghost sm" href="#/config/itens?edit=${i.id}">${icon('edit')} Editar</a></td></tr>`)}</tbody>
     </table></div></div>`);
+
+  // Cadastro rápido de uma cor de tinta, com os mesmos padrões de alerta da tinta que já existe.
+  const inkForm = $('[data-ink]', box);
+  inkForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const d = formData(inkForm);
+    const colorName = d.color_name.trim();
+    const model = inks[0] || { unit: 'litro', alert_days: 10, lead_time_days: 10, min_stock: 0, notify: 1 };
+    const lower = colorName.charAt(0).toLowerCase() + colorName.slice(1);
+    // "Vermelho" -> "Tinta vermelha" (só para cores de uma palavra terminadas em -o)
+    const name = `Tinta ${/^[^\s]+[^ã]o$/.test(lower) ? `${lower.slice(0, -1)}a` : lower}`;
+    try {
+      await api('/items', {
+        method: 'POST',
+        body: {
+          name, category: 'tinta', source: 'compra', unit: model.unit, color_name: colorName, color_hex: d.color_hex,
+          alert_days: model.alert_days, lead_time_days: model.lead_time_days, min_stock: 0, notify: !!model.notify,
+          sort_order: 50, initial_quantity: num(d.initial_quantity),
+        },
+      });
+      toast(`${name} cadastrada.`);
+      itemsTab(box, ctx);
+    } catch (err) { toastError(err); }
+  };
 }
 
 function itemForm(box, ctx, item, items, sugg) {
@@ -238,7 +275,7 @@ async function peopleTab(box, ctx) {
 
     <form class="card section" data-perms>
       <div class="card-head"><h2>O que cada função pode fazer</h2>
-        <p class="small muted">Dono e Administração podem tudo, sempre (inclusive contagem de estoque, estornos, cadastros e configurações). Todos podem ver estoque, pedidos, painel e histórico.</p></div>
+        <p class="small muted">A Administração pode tudo, sempre — e só ela mexe no sistema (contagem de estoque, estornos, cadastros, permissões, avisos e backup). Todos podem ver estoque, pedidos, painel e histórico. O Dono, por padrão, acompanha tudo (inclusive o financeiro) sem lançar nada.</p></div>
       <div class="table-wrap"><table class="table matrix">
         <thead><tr><th>Permissão</th>${editable.map((r) => html`<th>${r.label}</th>`)}</tr></thead>
         <tbody>${Object.entries(rolesData.perms).map(([p, label]) => html`<tr><td>${label}</td>

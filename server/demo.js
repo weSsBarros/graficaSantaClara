@@ -95,7 +95,17 @@ function generate() {
   db.prepare("UPDATE items SET brand = 'Kodak', code = 'CH-0.15', min_stock = 15 WHERE category = 'chapa'").run();
 
   const paper = { '46x66': item('Papel branco 46x66'), '96x64': item('Papel branco 96x64') };
+  // Cartaz de oferta: fundo amarelo, letras vermelhas e texto preto.
+  const now0 = new SimDate().toISOString();
+  const insInk = db.prepare(
+    `INSERT INTO items (name, category, source, unit, color_name, color_hex, brand, alert_days, lead_time_days, min_stock, sort_order, created_at, updated_at)
+     VALUES (?, 'tinta', 'compra', 'litro', ?, ?, 'Sun Chemical', 10, 10, 2, ?, ?, ?)`
+  );
+  insInk.run('Tinta vermelha', 'Vermelho', '#d62828', 51, now0, now0);
+  insInk.run('Tinta preta', 'Preto', '#1a1a1a', 52, now0, now0);
   const tinta = item('Tinta amarela');
+  // litros por 10.000 folhas impressas de cada cor
+  const inks = [[tinta, 1.1], [item('Tinta vermelha'), 0.45], [item('Tinta preta'), 0.2]];
   const chapa = item('Chapa de impressão');
   const products = db.prepare("SELECT * FROM items WHERE category = 'impresso' ORDER BY sort_order").all();
   // Demanda relativa de cada modelo (Oferta vende mais).
@@ -109,7 +119,7 @@ function generate() {
   // Contagem inicial.
   stock.ajuste(db, marcia, { item_id: paper['46x66'].id, counted: 45000, note: 'Contagem inicial' }, ctx);
   stock.ajuste(db, marcia, { item_id: paper['96x64'].id, counted: 22000, note: 'Contagem inicial' }, ctx);
-  stock.ajuste(db, marcia, { item_id: tinta.id, counted: 16, note: 'Contagem inicial' }, ctx);
+  for (const [ink, rate] of inks) stock.ajuste(db, marcia, { item_id: ink.id, counted: Math.round(rate * 14), note: 'Contagem inicial' }, ctx);
   stock.ajuste(db, marcia, { item_id: chapa.id, counted: 60, note: 'Contagem inicial' }, ctx);
   for (const p of products) stock.ajuste(db, marcia, { item_id: p.id, counted: 3000, note: 'Contagem inicial' }, ctx);
 
@@ -194,7 +204,7 @@ function generate() {
         product_id: r.p.id, input_qty: resmas, input_unit: 'pack', waste_qty: Math.round(sheets * (0.004 + rand() * 0.014)),
         extras: [
           { item_id: chapa.id, quantity: 1 },
-          { item_id: tinta.id, quantity: Math.max(0.1, Math.round((sheets / 9000) * 10) / 10) },
+          ...inks.map(([ink, rate]) => ({ item_id: ink.id, quantity: Math.max(0.1, Math.round((sheets / 10000) * rate * 10) / 10) })),
         ],
       }, ctx);
     });
@@ -258,8 +268,12 @@ function generate() {
         });
       }
     }
-    if (qty(tinta) < 6 && !pendingPurchases.some((x) => x.key === 'tinta' && x.arrive > day)) {
-      pendingPurchases.push({ key: 'tinta', arrive: day + 5, fn: () => stock.entrada(db, marcia, { item_id: tinta.id, quantity: 20, supplier: 'Tintas Maranhão', total_cost: 20 * cost.tinta, paid: true, payment_method: 'Pix' }, ctx) });
+    for (const [ink, rate] of inks) {
+      const key = `tinta-${ink.id}`;
+      if (qty(ink) < rate * 6 && !pendingPurchases.some((x) => x.key === key && x.arrive > day)) {
+        const liters = Math.ceil(rate * 18);
+        pendingPurchases.push({ key, arrive: day + 5, fn: () => stock.entrada(db, marcia, { item_id: ink.id, quantity: liters, supplier: 'Tintas Maranhão', total_cost: liters * cost.tinta, paid: true, payment_method: 'Pix' }, ctx) });
+      }
     }
     if (qty(chapa) < 20 && !pendingPurchases.some((x) => x.key === 'chapa' && x.arrive > day)) {
       pendingPurchases.push({ key: 'chapa', arrive: day + 4, fn: () => stock.entrada(db, marcia, { item_id: chapa.id, quantity: 50, supplier: 'Grafitec', total_cost: 50 * cost.chapa, paid: true, payment_method: 'Pix' }, ctx) });

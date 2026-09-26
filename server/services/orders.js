@@ -20,7 +20,7 @@ const STATUS_LABELS = {
 const OPEN_STATUSES = ['aberto', 'parcial', 'pronto', 'saiu'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-const canSeePrices = (user) => can(user, 'pedidos') || can(user, 'financeiro');
+const canSeePrices = (user) => can(user, 'pedidos') || can(user, 'ver_financeiro');
 
 function dateOrNull(v, field) {
   if (v === undefined || v === null || v === '') return null;
@@ -312,7 +312,7 @@ function decorate(db, user, o, lines) {
     packed_total: round3(lines.reduce((a, l) => a + Math.min(l.packed, l.quantity), 0)),
   };
   if (!prices) delete out.total;
-  if (can(user, 'financeiro') || can(user, 'pedidos')) {
+  if (canSeePrices(user)) {
     const e = db
       .prepare('SELECT COALESCE(SUM(CASE WHEN paid_at IS NOT NULL THEN amount END),0) AS paid, COALESCE(SUM(amount),0) AS total FROM finance_entries WHERE order_id = ? AND canceled_at IS NULL')
       .get(o.id);

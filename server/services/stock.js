@@ -24,7 +24,7 @@ const TYPE_LABELS = {
 // Categorias de itens (a lista pode crescer sem mexer no banco).
 const CATEGORIES = {
   papel: 'Papel',
-  impresso: 'Impressos',
+  impresso: 'Cartazes',
   tinta: 'Tinta',
   chapa: 'Chapa',
   embalagem: 'Embalagem',
@@ -452,7 +452,7 @@ function attachMovements(db, ops, user) {
     .all(...ids);
   const byOp = new Map(ids.map((id) => [id, []]));
   for (const r of rows) byOp.get(r.operation_id).push(r);
-  const showCost = user && can(user, 'financeiro');
+  const showCost = user && can(user, 'ver_financeiro');
   return ops.map((o) => ({
     ...o,
     total_cost: showCost ? o.total_cost : undefined,

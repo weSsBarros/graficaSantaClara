@@ -89,7 +89,7 @@ const PARAMS = FIELDS.map((f) => `@${f}`).join(', ');
 const SETS = FIELDS.map((f) => `${f}=@${f}`).join(', ');
 
 function withCost(user, item) {
-  if (can(user, 'financeiro')) return item;
+  if (can(user, 'ver_financeiro')) return item;
   const { last_unit_cost: _omit, ...rest } = item;
   return rest;
 }

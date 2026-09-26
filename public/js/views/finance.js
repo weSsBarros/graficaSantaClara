@@ -21,21 +21,22 @@ const shiftMonth = (ym, n) => {
 
 export async function render(ctx) {
   const { el, me, params } = ctx;
-  if (!hasPerm(me, 'financeiro')) throw new Error('Você não tem permissão para ver o financeiro.');
+  if (!hasPerm(me, 'ver_financeiro')) throw new Error('Você não tem permissão para ver o financeiro.');
+  const canEdit = hasPerm(me, 'financeiro');
   const tab = params.tab || 'resumo';
   ctx.setTitle('Financeiro');
   el.innerHTML = String(html`
     <div class="page-title"><h1>Financeiro</h1>
-      <div class="row"><button class="btn secondary" data-new="receita">${icon('plus')} Receita</button><button class="btn" data-new="despesa">${icon('plus')} Despesa</button></div></div>
+      ${canEdit ? html`<div class="row"><button class="btn secondary" data-new="receita">${icon('plus')} Receita</button><button class="btn" data-new="despesa">${icon('plus')} Despesa</button></div>` : html`<span class="tag">Somente leitura</span>`}</div>
     <nav class="tabs">${TABS.map(([k, l]) => html`<a href="#/financeiro/${k}" class="${k === tab ? 'active' : ''}">${l}</a>`)}</nav>
-    <div class="toolbar hide-lg"><button class="btn secondary" data-new="receita">${icon('plus')} Receita</button><button class="btn" data-new="despesa">${icon('plus')} Despesa</button></div>
+    ${canEdit ? html`<div class="toolbar hide-lg"><button class="btn secondary" data-new="receita">${icon('plus')} Receita</button><button class="btn" data-new="despesa">${icon('plus')} Despesa</button></div>` : ''}
     <div data-tab></div>`);
   const meta = await api('/finance/categories');
   if (!ctx.isCurrent()) return;
   const box = $('[data-tab]', el);
-  const env = { ctx, meta, reload: () => render(ctx) };
+  const env = { ctx, meta, canEdit, reload: () => render(ctx) };
   $$('[data-new]', el).forEach((b) => { b.onclick = () => entryForm(env, { kind: b.dataset.new }); });
-  if (ctx.query.novo) entryForm(env, { kind: ctx.query.novo === 'receita' ? 'receita' : 'despesa' });
+  if (ctx.query.novo && canEdit) entryForm(env, { kind: ctx.query.novo === 'receita' ? 'receita' : 'despesa' });
   const views = { resumo: summaryTab, lancamentos: entriesTab, contas: openTab, categorias: categoriesTab };
   await (views[tab] || summaryTab)(box, env);
 }
@@ -103,7 +104,7 @@ async function payEntry(env, e) {
   } catch (err) { toastError(err); }
 }
 
-function entryRow(e) {
+function entryRow(e, canEdit = true) {
   const sign = e.kind === 'despesa' ? '−' : '+';
   return html`<li data-id="${e.id}">
     <div class="row between wrap" style="align-items:flex-start">
@@ -121,7 +122,7 @@ function entryRow(e) {
         <span class="status ${e.status}">${STATUS_LABELS[e.status]}</span>
       </div>
     </div>
-    ${e.canceled_at ? '' : html`<div class="tools">
+    ${e.canceled_at || !canEdit ? '' : html`<div class="tools">
       ${e.paid_at ? html`<button class="btn ghost sm" data-unpay>Desmarcar ${e.kind === 'despesa' ? 'pagamento' : 'recebimento'}</button>`
         : html`<button class="btn sm" data-pay>${icon('check')} ${e.kind === 'despesa' ? 'Pagar' : 'Receber'}</button>`}
       ${e.order_id ? '' : html`<button class="btn ghost sm" data-edit>${icon('edit')} Editar</button>`}
@@ -210,7 +211,7 @@ async function summaryTab(box, env) {
 
     <div class="card section">
       <div class="card-head"><h2>Próximas contas a pagar</h2><a class="small" href="#/financeiro/contas">Ver todas</a></div>
-      ${upcoming.entries.length ? html`<ul class="list" data-list>${upcoming.entries.map(entryRow)}</ul>` : html`<div class="empty">Nenhuma conta em aberto.</div>`}
+      ${upcoming.entries.length ? html`<ul class="list" data-list>${upcoming.entries.map((e) => entryRow(e, env.canEdit))}</ul>` : html`<div class="empty">Nenhuma conta em aberto.</div>`}
     </div>`);
 
   $$('[data-m]', box).forEach((b) => {
@@ -252,7 +253,7 @@ async function entriesTab(box, env) {
     const rec = active.filter((e) => e.kind === 'receita').reduce((a, e) => a + e.amount, 0);
     const des = active.filter((e) => e.kind === 'despesa').reduce((a, e) => a + e.amount, 0);
     $('[data-totals]', box).textContent = `${res.entries.length} lançamento(s) · receitas ${brl(rec)} · despesas ${brl(des)}`;
-    list.innerHTML = res.entries.length ? String(html`${res.entries.map(entryRow)}`) : String(html`<li class="empty">Nada encontrado.</li>`);
+    list.innerHTML = res.entries.length ? String(html`${res.entries.map((e) => entryRow(e, env.canEdit))}`) : String(html`<li class="empty">Nada encontrado.</li>`);
     bindEntryActions(list, env, res.entries);
   }
   let timer;
@@ -275,9 +276,9 @@ async function openTab(box, env) {
   const sum = (list) => brl(list.reduce((a, e) => a + e.amount, 0));
   box.innerHTML = String(html`<div class="grid-2">
     <div class="card"><div class="card-head"><h2>A pagar</h2><b class="money neg">${sum(pay.entries)}</b></div>
-      ${pay.entries.length ? html`<ul class="list" data-pay-list>${pay.entries.map(entryRow)}</ul>` : html`<div class="empty">Nada a pagar.</div>`}</div>
+      ${pay.entries.length ? html`<ul class="list" data-pay-list>${pay.entries.map((e) => entryRow(e, env.canEdit))}</ul>` : html`<div class="empty">Nada a pagar.</div>`}</div>
     <div class="card"><div class="card-head"><h2>A receber</h2><b class="money pos">${sum(rec.entries)}</b></div>
-      ${rec.entries.length ? html`<ul class="list" data-rec-list>${rec.entries.map(entryRow)}</ul>` : html`<div class="empty">Nada a receber.</div>`}</div>
+      ${rec.entries.length ? html`<ul class="list" data-rec-list>${rec.entries.map((e) => entryRow(e, env.canEdit))}</ul>` : html`<div class="empty">Nada a receber.</div>`}</div>
   </div>`);
   const pl = $('[data-pay-list]', box);
   if (pl) bindEntryActions(pl, env, pay.entries);
@@ -293,9 +294,9 @@ async function categoriesTab(box, env) {
       <h2 style="margin-bottom:8px">Categorias de ${kind}</h2>
       <ul class="list">${group(kind).map((c) => html`<li class="row between">
         <span>${c.name} ${c.active ? '' : html`<span class="tag">Desativada</span>`}</span>
-        <span class="row"><button class="btn ghost sm" data-rename="${c.id}" data-name="${c.name}">${icon('edit')} Renomear</button>
-          <button class="btn ghost sm" data-toggle="${c.id}" data-active="${c.active}">${c.active ? 'Desativar' : 'Reativar'}</button></span></li>`)}</ul>
-      <form class="input-group" style="margin-top:12px" data-add="${kind}"><input class="input" name="name" placeholder="Nova categoria de ${kind}" maxlength="60" required><button class="btn" type="submit">${icon('plus')}</button></form>
+        ${env.canEdit ? html`<span class="row"><button class="btn ghost sm" data-rename="${c.id}" data-name="${c.name}">${icon('edit')} Renomear</button>
+          <button class="btn ghost sm" data-toggle="${c.id}" data-active="${c.active}">${c.active ? 'Desativar' : 'Reativar'}</button></span>` : ''}</li>`)}</ul>
+      ${env.canEdit ? html`<form class="input-group" style="margin-top:12px" data-add="${kind}"><input class="input" name="name" placeholder="Nova categoria de ${kind}" maxlength="60" required><button class="btn" type="submit">${icon('plus')}</button></form>` : ''}
     </div>`)}
   </div>`);
   $$('[data-add]', box).forEach((form) => {

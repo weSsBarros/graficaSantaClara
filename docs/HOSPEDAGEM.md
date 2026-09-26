@@ -3,7 +3,7 @@
 O sistema é um site: um programa Node.js que guarda tudo num arquivo de banco de dados (SQLite).
 Ele precisa de **um lugar ligado o tempo todo** e de um **endereço** para abrir no celular e no PC.
 O painel de administração já vem pronto dentro do sistema: é a tela **Configurações** (itens, pessoas,
-permissões, avisos, backup), acessível só para Dono e Administração.
+permissões, avisos, backup), acessível só para a Administração (Márcia). O Joatan acompanha tudo, sem alterar.
 
 Preços pesquisados em setembro/2026 — confira antes de contratar.
 
@@ -103,6 +103,9 @@ Os dois dão conta do sistema **e** da Evolution API (WhatsApp) juntos.
 5. Abra `https://seu-dominio` e entre com o PIN `2580` (cada pessoa troca no primeiro acesso).
 
 Atualizar o sistema depois: `git pull && docker compose up -d --build`.
+
+Se a Márcia esquecer o PIN: `docker compose exec app npm run pin -- "Márcia" 5827`
+(ela entra com esse PIN provisório e cria um novo).
 
 ### WhatsApp pela Evolution API
 

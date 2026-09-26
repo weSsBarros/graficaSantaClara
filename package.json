@@ -8,7 +8,8 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "demo": "node server/demo.js",
-    "test": "node --test"
+    "test": "node --test",
+    "pin": "node server/reset-pin.js"
   },
   "engines": {
     "node": ">=22"

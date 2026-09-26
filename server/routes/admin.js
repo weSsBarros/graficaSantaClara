@@ -36,9 +36,9 @@ module.exports = function adminRoutes(db) {
   // Não deixa o sistema ficar sem ninguém com acesso total.
   function assertManagersRemain(excludingId) {
     const n = db
-      .prepare(`SELECT COUNT(*) AS n FROM users WHERE active = 1 AND role IN ('dono','admin') AND id <> ?`)
-      .get(excludingId).n;
-    if (n === 0) throw new HttpError(400, 'É preciso manter pelo menos uma pessoa ativa como Dono ou Administração.');
+      .prepare(`SELECT COUNT(*) AS n FROM users WHERE active = 1 AND role IN (${MANAGER_ROLES.map(() => '?').join(',')}) AND id <> ?`)
+      .get(...MANAGER_ROLES, excludingId).n;
+    if (n === 0) throw new HttpError(400, 'É preciso manter pelo menos uma pessoa ativa na Administração.');
   }
 
   r.post('/users', requirePerm('cadastros'), (req, res) => {
@@ -72,7 +72,7 @@ module.exports = function adminRoutes(db) {
       role: req.body.role === undefined ? before.role : readRole(req.body.role),
       active: req.body.active === undefined ? before.active : bool(req.body.active) ? 1 : 0,
     };
-    const losingManager = ['dono', 'admin'].includes(before.role) && (!['dono', 'admin'].includes(data.role) || !data.active);
+    const losingManager = MANAGER_ROLES.includes(before.role) && (!MANAGER_ROLES.includes(data.role) || !data.active);
     if (losingManager) assertManagersRemain(before.id);
     if (before.id === req.user.id && !data.active) throw new HttpError(400, 'Você não pode desativar a si mesmo.');
     const changes = diff(before, data, ['name', 'role', 'active']);

@@ -68,7 +68,7 @@ function navItems() {
     { href: '#/estoque', label: 'Estoque', icon: 'box', match: ['/estoque', '/item'] },
     { href: '#/pedidos', label: 'Pedidos', icon: 'truck', match: ['/pedidos', '/pedido'] },
     { href: '#/painel', label: 'Painel', icon: 'chart', match: ['/painel'] },
-    p.includes('financeiro') && { href: '#/financeiro', label: 'Financeiro', icon: 'money', match: ['/financeiro'], side: true },
+    p.includes('ver_financeiro') && { href: '#/financeiro', label: 'Financeiro', icon: 'money', match: ['/financeiro'], side: true },
     { href: '#/historico', label: 'Histórico', icon: 'clock', match: ['/historico'], side: true },
     { href: '#/manutencao', label: 'Manutenção', icon: 'wrench', match: ['/manutencao'], side: true },
     p.includes('ver_logs') && { href: '#/logs', label: 'Registro de atividades', icon: 'log', match: ['/logs'], side: true },

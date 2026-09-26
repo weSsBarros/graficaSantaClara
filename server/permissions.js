@@ -1,8 +1,9 @@
 'use strict';
 
-// Quem pode fazer o quê. Dono e Administração podem tudo, sempre.
-// Para as demais funções, o padrão está abaixo e a administração pode mudar na tela
-// Configurações → Pessoas (fica salvo em settings.role_perms).
+// Quem pode fazer o quê. A Administração pode tudo, sempre (e só ela mexe no sistema:
+// cadastros, permissões, avisos, contagem de estoque, estornos).
+// Para as demais funções — inclusive Dono — o padrão está abaixo e a administração pode
+// mudar na tela Configurações → Pessoas e permissões (fica salvo em settings.role_perms).
 const ROLES = {
   dono: { label: 'Dono' },
   admin: { label: 'Administração' },
@@ -11,9 +12,9 @@ const ROLES = {
   empacotador: { label: 'Empacotadora' },
 };
 
-const MANAGER_ROLES = ['dono', 'admin'];
+const MANAGER_ROLES = ['admin'];
 
-// Permissões que podem ser dadas a qualquer função (as demais são só de Dono/Administração).
+// Permissões que podem ser dadas a qualquer função.
 const PERMS = {
   impressao: 'Registrar impressão',
   empacotamento: 'Registrar empacotamento',
@@ -22,10 +23,11 @@ const PERMS = {
   manutencao: 'Registrar manutenção de máquina',
   pedidos: 'Criar e editar pedidos e clientes (vê os preços dos pedidos)',
   entrega: 'Registrar saída e entrega de pedidos',
-  financeiro: 'Ver e lançar o financeiro (inclui valores dos pedidos)',
+  ver_financeiro: 'Ver o financeiro e os valores (sem lançar nada)',
+  financeiro: 'Lançar e editar no financeiro (pagar, receber, despesas)',
   ver_logs: 'Ver o registro de atividades e exportar planilhas',
 };
-// Sempre exclusivas de Dono/Administração:
+// Sempre exclusivas da Administração:
 //  ajuste     contagem/ajuste de inventário
 //  estorno    estornar lançamentos de outras pessoas
 //  cadastros  itens, pessoas, permissões
@@ -33,6 +35,9 @@ const PERMS = {
 const MANAGER_ONLY = ['ajuste', 'estorno', 'cadastros', 'sistema'];
 
 const DEFAULT_ROLE_PERMS = {
+  // O dono acompanha tudo (estoque, pedidos, painel, histórico, financeiro e registro de
+  // atividades), mas não lança nem altera nada.
+  dono: ['ver_financeiro', 'ver_logs'],
   secretaria: ['entrada', 'retirada', 'pedidos', 'entrega', 'ver_logs'],
   impressor: ['impressao', 'entrada', 'retirada', 'manutencao'],
   empacotador: ['empacotamento', 'retirada', 'entrega'],
@@ -44,7 +49,10 @@ const ALL_PERMS = [...Object.keys(PERMS), ...MANAGER_ONLY];
 function rolePerms(role, overrides) {
   if (MANAGER_ROLES.includes(role)) return [...ALL_PERMS];
   const custom = overrides && Array.isArray(overrides[role]) ? overrides[role] : DEFAULT_ROLE_PERMS[role] || [];
-  return custom.filter((p) => PERMS[p]);
+  const perms = custom.filter((p) => PERMS[p]);
+  // Quem lança no financeiro também vê.
+  if (perms.includes('financeiro') && !perms.includes('ver_financeiro')) perms.push('ver_financeiro');
+  return perms;
 }
 
 function can(user, perm) {
