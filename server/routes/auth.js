@@ -51,7 +51,7 @@ module.exports = function authRoutes(db) {
     }
     db.prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?').run(user.id);
     const token = createSession(db, user.id);
-    setSessionCookie(res, token);
+    setSessionCookie(req, res, token);
     audit(db, {
       actor: user, action: 'login', entity: 'user', entityId: user.id, ip: req.ip,
       summary: `${user.name} entrou no sistema.`,
@@ -98,7 +98,7 @@ module.exports = function authRoutes(db) {
       destroyUserSessions(db, user.id);
       audit(db, { actor: user, action: 'pin_alterado', entity: 'user', entityId: user.id, ip: req.ip, summary: `${user.name} alterou o próprio PIN.` });
     })();
-    setSessionCookie(res, createSession(db, user.id));
+    setSessionCookie(req, res, createSession(db, user.id));
     res.json({ ok: true });
   });
 

@@ -4,6 +4,7 @@ const express = require('express');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const config = require('../config');
 const { audit, diff } = require('../audit');
 const { getSetting, setSetting } = require('../db');
 const { HttpError, num, str, oneOf, bool, localDate, localDayStartIso, addDays, fmtLocalDateTime } = require('../util');
@@ -14,6 +15,9 @@ const { deliver } = require('../scheduler');
 const { sendCsv } = require('../csv');
 const notify = require('../services/notify');
 const stock = require('../services/stock');
+const { driverName } = require('../sqlite');
+
+const APP_ROOT = path.join(__dirname, '..', '..');
 
 module.exports = function adminRoutes(db) {
   const r = express.Router();
@@ -222,6 +226,37 @@ module.exports = function adminRoutes(db) {
     const text = reports.weeklyReport(db, { includeFinance: cfg.weekly.include_finance !== false });
     const results = await deliver(db, text, 'Relatório semanal', null);
     res.json({ results, sent: results.some((r) => r.sent) });
+  });
+
+  // Onde ficam os dados e com o que o sistema está rodando (para conferir a hospedagem).
+  r.get('/system', requirePerm('sistema'), (_req, res) => {
+    const size = (f) => {
+      try {
+        return fs.statSync(f).size;
+      } catch {
+        return null;
+      }
+    };
+    let backups = [];
+    try {
+      backups = fs.readdirSync(config.backupDir).filter((f) => /^grafica-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
+    } catch {
+      // a pasta ainda não existe
+    }
+    const rel = path.relative(APP_ROOT, config.dataDir);
+    res.json({
+      data_dir: config.dataDir,
+      db_path: config.dbPath,
+      db_size: size(config.dbPath),
+      backup_dir: config.backupDir,
+      backups: backups.length,
+      last_backup: backups.length ? backups.at(-1).slice(8, 18) : null,
+      driver: driverName(),
+      node: process.version,
+      started_at: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+      // Numa hospedagem que apaga a pasta do sistema a cada publicação, os dados não podem ficar dentro dela.
+      data_at_risk: config.managedDeploy && !rel.startsWith('..') && !path.isAbsolute(rel),
+    });
   });
 
   // Cópia de segurança do banco inteiro, para guardar fora do computador/servidor.

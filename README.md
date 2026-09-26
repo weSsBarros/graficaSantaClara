@@ -78,9 +78,13 @@ Veja o guia **[docs/HOSPEDAGEM.md](docs/HOSPEDAGEM.md)**. Resumo:
 
 | Opção | Custo |
 |---|---|
+| **Hostinger Business ou Cloud** — "App web Node.js" importado do GitHub, com HTTPS e publicação automática | já incluso no plano |
+| **Hostinger VPS** — `docker compose` + WhatsApp (Evolution API) | ~R$ 30–60/mês |
 | Computador da gráfica + Cloudflare Tunnel (acesso de qualquer lugar, com HTTPS) | R$ 0/mês + domínio ~R$ 40/ano |
 | Oracle Cloud "Always Free" | R$ 0/mês (mais técnico) |
-| VPS (Hostinger KVM 1, Hetzner CAX11) com `docker compose` + HTTPS automático + WhatsApp | ~R$ 30–60/mês |
+| Outra VPS (Hetzner CAX11...) com `docker compose` + HTTPS automático + WhatsApp | ~R$ 30–60/mês |
+
+Os planos Single/Premium da Hostinger não rodam Node.js (só PHP/WordPress).
 
 ## Primeiro uso
 
@@ -123,27 +127,30 @@ O que é enviado: alerta de estoque (na hora), **relatório semanal** (dia e hor
 
 ## Backup
 
-- Automático: uma cópia por dia em `data/backups/` (guarda as últimas 30).
+- Automático: uma cópia por dia na pasta `backups` dentro da pasta dos dados (guarda as últimas 30).
+  **Configurações → Sistema** mostra onde ficam os dados, as cópias e a data da última.
 - Manual: **Configurações → Sistema → Baixar cópia agora**. Guarde fora do servidor.
-- Para restaurar: pare o sistema, substitua `data/grafica.db` pela cópia e inicie de novo.
+- Para restaurar: pare o sistema, substitua o `grafica.db` da pasta dos dados pela cópia e inicie de novo.
 
 ## Configurações por variáveis de ambiente (opcionais)
 
 | Variável | Padrão | Para que serve |
 |---|---|---|
-| `PORT` | `3000` | Porta do sistema |
-| `DATA_DIR` | `./data` | Pasta do banco de dados e dos backups |
+| `PORT` | `3000` | Porta do sistema (a hospedagem costuma definir sozinha) |
+| `DATA_DIR` | `./data` (na Hostinger: `~/grafica-santa-clara-dados`) | Pasta do banco de dados e dos backups; aceita `~/` |
 | `DB_PATH` | `DATA_DIR/grafica.db` | Arquivo do banco |
 | `BACKUP_DIR` / `BACKUP_KEEP` | `DATA_DIR/backups` / `30` | Backups diários |
 | `UTC_OFFSET_HOURS` | `-3` | Fuso horário (São Luís = -3, sem horário de verão) |
 | `COOKIE_SECURE` / `TRUST_PROXY` | desligados | `1` quando estiver em HTTPS atrás de proxy (o docker-compose já liga) |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | vazio | Alternativa à tela de Avisos para o Telegram |
+| `SQLITE_DRIVER` | automático | `node` força o SQLite embutido no Node.js em vez do `better-sqlite3` |
 
 ---
 
 ## Para quem for mexer no código
 
-- **Backend**: Node.js + Express 5 + SQLite (`better-sqlite3`); e-mail com `nodemailer`.
+- **Backend**: Node.js + Express 5 + SQLite (`better-sqlite3`, ou o `node:sqlite` embutido no Node quando
+  o módulo nativo não instala — como na Hostinger); e-mail com `nodemailer`.
 - **Frontend**: HTML/CSS/JavaScript puro (módulos ES), sem etapa de build; gráficos com Chart.js e leitor
   de código de barras (ZXing) servidos localmente — funciona sem internet na rede da gráfica.
 - **Testes**: `npm test` (Node test runner; sobe a API com banco em memória, inclusive um servidor
@@ -154,6 +161,8 @@ server/
   index.js              inicia o servidor e a rotina (backup, alertas, relatórios agendados)
   app.js                Express: segurança (CSP, anti-CSRF), rotas, arquivos estáticos
   db.js                 esquema do banco e migrações (PRAGMA user_version)
+  sqlite.js             escolhe o driver do SQLite (better-sqlite3 ou node:sqlite)
+  config.js             variáveis de ambiente e pasta dos dados
   auth.js               PIN (scrypt), sessões, bloqueio após PINs errados
   permissions.js        funções, permissões padrão e as configuráveis
   audit.js              registro de atividades

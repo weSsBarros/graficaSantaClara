@@ -512,3 +512,8 @@ fieldset.group legend { font-weight: 700; padding: 0 6px; }
 .scanner video { width: 100%; border-radius: 12px; background: #000; aspect-ratio: 4 / 3; object-fit: cover; }
 pre.report { white-space: pre-wrap; font: .9rem/1.5 var(--font); background: var(--surface-2); border-radius: 12px; padding: 14px; margin: 0; }
 @media (min-width: 900px) { .hide-lg { display: none !important; } }
+.sysinfo { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
+.sysinfo dt { color: var(--text-2); }
+.sysinfo dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.alert-card { border: 1px solid var(--critical-ink); margin-bottom: 16px; }
+@media (max-width: 600px) { .sysinfo { grid-template-columns: 1fr; } .sysinfo dd { margin-bottom: 6px; } }

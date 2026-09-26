@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const Database = require('better-sqlite3');
+const { openDatabase } = require('./sqlite');
 
 // Cada item do array é uma migração. Nunca altere uma migração já publicada:
 // acrescente uma nova no final. A versão fica em PRAGMA user_version.
@@ -311,7 +311,7 @@ function migrate(db) {
 
 function openDb(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new Database(file);
+  const db = openDatabase(file);
   if (file !== ':memory:') db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');

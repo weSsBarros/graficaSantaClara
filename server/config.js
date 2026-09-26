@@ -1,14 +1,26 @@
 'use strict';
 
+const os = require('node:os');
 const path = require('node:path');
 
-const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+// Em hospedagens gerenciadas (ex.: app Node.js da Hostinger), a pasta do sistema é apagada e
+// recriada a cada nova publicação. Nesse caso, sem DATA_DIR definido, os dados vão para uma pasta
+// fixa dentro da pasta pessoal da conta, fora da publicação.
+const managedDeploy = /[\\/](public_html|hbuilds|domains)[\\/]/.test(__dirname);
+// DATA_DIR, DB_PATH e BACKUP_DIR aceitam "~/pasta" (dentro da pasta pessoal da conta).
+const home = (p) => (p && /^~(?=$|[\\/])/.test(p) ? path.join(os.homedir(), p.slice(1)) : p);
+const dataDir = path.resolve(
+  home(process.env.DATA_DIR) ||
+    (managedDeploy ? path.join(os.homedir(), 'grafica-santa-clara-dados') : path.join(__dirname, '..', 'data')),
+);
 
 module.exports = {
-  port: Number(process.env.PORT) || 3000,
+  // Número da porta ou, em algumas hospedagens, o caminho de um socket: é repassado como veio.
+  port: /^\d+$/.test(process.env.PORT || '') ? Number(process.env.PORT) : process.env.PORT || 3000,
+  managedDeploy,
   dataDir,
-  dbPath: process.env.DB_PATH || path.join(dataDir, 'grafica.db'),
-  backupDir: process.env.BACKUP_DIR || path.join(dataDir, 'backups'),
+  dbPath: home(process.env.DB_PATH) || path.join(dataDir, 'grafica.db'),
+  backupDir: home(process.env.BACKUP_DIR) || path.join(dataDir, 'backups'),
   backupKeep: Number(process.env.BACKUP_KEEP) || 30,
 
   // São Luís (MA) usa UTC-3 o ano todo (sem horário de verão).

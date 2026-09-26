@@ -1,7 +1,7 @@
 // Configurações (só Administração): itens, pessoas e permissões, avisos e sistema.
 import {
   html, api, icon, fmtNum, fmtDateTime, plural, parseNum, toast, toastError, promptDialog, confirmDialog,
-  colorDot, CATEGORY_LABELS, hasPerm, $, $$,
+  colorDot, CATEGORY_LABELS, hasPerm, fmtDmy, $, $$,
 } from '../lib.js';
 import { scanBarcode } from '../scanner.js';
 
@@ -451,9 +451,19 @@ async function notifyTab(box, ctx) {
 
 // ---------- sistema ----------
 
+function fmtBytes(n) {
+  if (n === null || n === undefined) return '—';
+  if (n < 1024 * 1024) return `${fmtNum(n / 1024, 0)} KB`;
+  return `${fmtNum(n / 1024 / 1024, 1)} MB`;
+}
+
 async function systemTab(box) {
-  const s = await api('/settings');
+  const [s, sys] = await Promise.all([api('/settings'), api('/system')]);
   box.innerHTML = String(html`
+    ${sys.data_at_risk ? html`<div class="card alert-card">
+      <strong>Atenção: os dados estão dentro da pasta do sistema.</strong>
+      <p class="small muted" style="margin:6px 0 0">Nesta hospedagem essa pasta é apagada a cada nova publicação.
+        Defina a variável <code>DATA_DIR</code> (por exemplo <code>~/grafica-santa-clara-dados</code>) e publique de novo.</p></div>` : ''}
     <div class="grid-2">
       <form class="card" data-form>
         <h2 style="margin-bottom:14px">Previsões</h2>
@@ -464,9 +474,22 @@ async function systemTab(box) {
       </form>
       <div class="card">
         <h2 style="margin-bottom:10px">Cópia de segurança</h2>
-        <p class="muted small">O sistema guarda automaticamente uma cópia por dia (últimos 30 dias) na pasta <code>data/backups</code>.
+        <p class="muted small">O sistema guarda automaticamente uma cópia por dia (últimos 30 dias) no servidor.
           Baixe uma cópia de vez em quando e guarde fora do servidor (pen drive, Google Drive).</p>
+        <p class="small" style="margin:8px 0 0">${sys.backups
+          ? `${sys.backups} ${sys.backups === 1 ? 'cópia guardada' : 'cópias guardadas'}; a última é de ${fmtDmy(sys.last_backup)}.`
+          : 'Nenhuma cópia automática ainda.'}</p>
         <a class="btn secondary" style="margin-top:12px" href="/api/backup">${icon('download')} Baixar cópia agora</a>
+      </div>
+      <div class="card">
+        <h2 style="margin-bottom:10px">Servidor</h2>
+        <dl class="small sysinfo">
+          <dt>Pasta dos dados</dt><dd><code>${sys.data_dir}</code></dd>
+          <dt>Banco de dados</dt><dd><code>${sys.db_path}</code> (${fmtBytes(sys.db_size)})</dd>
+          <dt>Cópias automáticas</dt><dd><code>${sys.backup_dir}</code></dd>
+          <dt>Programa</dt><dd>Node.js ${sys.node} · ${sys.driver}</dd>
+          <dt>Ligado desde</dt><dd>${fmtDateTime(sys.started_at)}</dd>
+        </dl>
       </div>
     </div>`);
   const form = $('[data-form]', box);

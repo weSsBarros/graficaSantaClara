@@ -3,7 +3,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const Database = require('better-sqlite3');
+const { openDatabase } = require('../server/sqlite');
 const { openDb, migrate, MIGRATIONS } = require('../server/db');
 const { createApp } = require('../server/app');
 const { seedIfEmpty, INITIAL_PIN } = require('../server/seed');
@@ -301,6 +301,7 @@ test('dono acompanha tudo (inclusive o financeiro), mas não lança nem altera n
   assert.equal((await j.put('/api/roles', { roles: {} })).status, 403);
   assert.equal((await j.put('/api/settings/notify', {})).status, 403);
   assert.equal((await j.get('/api/users')).status, 403);
+  assert.equal((await j.get('/api/system')).status, 403);
   const op = db.prepare("SELECT id FROM operations WHERE type = 'impressao' AND reversed_by_id IS NULL ORDER BY id DESC").get();
   assert.equal((await j.post(`/api/ops/${op.id}/estorno`, { reason: 'x' })).status, 403);
 });
@@ -528,7 +529,7 @@ test('cadastro de item: estoque inicial, nome e código de barras únicos', asyn
 // ---------- migração ----------
 
 test('banco da versão 1 é migrado sem perder dados', () => {
-  const old = new Database(':memory:');
+  const old = openDatabase(':memory:');
   old.exec(MIGRATIONS[0]);
   old.pragma('user_version = 1');
   const now = new Date().toISOString();
@@ -571,4 +572,31 @@ test('comando de emergência redefine o PIN direto no servidor', async () => {
   assert.ok(check.prepare("SELECT 1 FROM audit_log WHERE action = 'pin_redefinido'").get());
   check.close();
   for (const f of [file, `${file}-wal`, `${file}-shm`]) require('node:fs').rmSync(f, { force: true });
+});
+
+test('hospedagem: tela do sistema mostra onde ficam os dados', async () => {
+  const m = await client().login('Márcia');
+  const sys = ok(await m.get('/api/system'), 200);
+  assert.ok(sys.data_dir && sys.db_path && sys.backup_dir);
+  assert.match(sys.driver, /sqlite/);
+  assert.equal(sys.data_at_risk, false);
+  assert.equal((await (await client().login('Gabrielle')).get('/api/system')).status, 403);
+});
+
+test('hospedagem: pasta dos dados fora da publicação, "~/" e porta como socket', () => {
+  const os = require('node:os');
+  const path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const read = (env) => JSON.parse(execFileSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(require("./server/config")))'], {
+    cwd: path.join(__dirname, '..'),
+    env: { PATH: process.env.PATH, HOME: os.homedir(), ...env },
+  }).toString());
+  const local = read({});
+  assert.equal(local.dataDir, path.join(__dirname, '..', 'data'));
+  assert.equal(local.port, 3000);
+  const hosted = read({ DATA_DIR: '~/dados-grafica', PORT: '/tmp/app.sock' });
+  assert.equal(hosted.dataDir, path.join(os.homedir(), 'dados-grafica'));
+  assert.equal(hosted.dbPath, path.join(os.homedir(), 'dados-grafica', 'grafica.db'));
+  assert.equal(hosted.port, '/tmp/app.sock');
+  assert.equal(read({ PORT: '8080' }).port, 8080);
 });

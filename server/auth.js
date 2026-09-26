@@ -65,11 +65,12 @@ function parseCookies(header) {
   return out;
 }
 
-function setSessionCookie(res, token) {
+function setSessionCookie(req, res, token) {
   res.cookie(COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: config.cookieSecure,
+    // em HTTPS (direto, ou atrás de proxy com TRUST_PROXY=1) o cookie só trafega criptografado
+    secure: config.cookieSecure || req.secure,
     maxAge: config.sessionDays * DAY_MS,
     path: '/',
   });
