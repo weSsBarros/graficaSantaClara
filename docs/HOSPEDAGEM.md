@@ -18,6 +18,14 @@ Primeiro veja **qual é o plano**: entre no [hPanel](https://hpanel.hostinger.co
 | **Business** | **Sim**, como "app Node.js" (até 5 apps). | **Caminho A** |
 | **Cloud** (Startup, Professional, Enterprise) | **Sim**, como "app Node.js" (até 10 apps no Startup). | **Caminho A** |
 | **VPS** (KVM 1, KVM 2...) | **Sim**, com Docker — e ainda roda o WhatsApp pela Evolution API. | **Caminho B** |
+| Plano antigo, fora desta lista (ex.: **Unlimited**) | Só se aparecer a opção **App web Node.js** (teste abaixo). | Se aparecer, **caminho A**; se não, **upgrade para Business** ou **VPS**. |
+
+**Teste rápido** (vale para qualquer plano): hPanel → **Websites** → **Adicionar site**. Se na lista
+aparecer **App web Node.js** (*Node.js web app*), o plano roda o sistema. Se só aparecerem WordPress,
+construtor de sites e site vazio/PHP, não roda.
+
+Fazer upgrade (hPanel → **Hospedagem** → **Fazer upgrade**) mantém o site, os e-mails e o domínio
+que vocês já têm; só passa a permitir apps Node.js.
 
 O domínio que vocês já têm na Hostinger serve: o sistema pode ficar num subdomínio, por exemplo
 `estoque.graficasantaclara.com.br`, sem atrapalhar o site da gráfica.
