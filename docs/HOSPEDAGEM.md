@@ -18,10 +18,10 @@ Primeiro veja **qual é o plano**: entre no [hPanel](https://hpanel.hostinger.co
 | **Business** | **Sim**, como "app Node.js" (até 5 apps). | **Caminho A** |
 | **Cloud** (Startup, Professional, Enterprise) | **Sim**, como "app Node.js" (até 10 apps no Startup). | **Caminho A** |
 | **VPS** (KVM 1, KVM 2...) | **Sim**, com Docker — e ainda roda o WhatsApp pela Evolution API. | **Caminho B** |
-| Plano antigo, fora desta lista (ex.: **Unlimited**) | Só se aparecer a opção **App web Node.js** (teste abaixo). | Se aparecer, **caminho A**; se não, **upgrade para Business** ou **VPS**. |
+| Plano antigo, fora desta lista (ex.: **Unlimited**) | Só se aparecer a opção **Web app Node.js** (teste abaixo). O Unlimited da gráfica mostra a opção. | Se aparecer, **caminho A**; se não, **upgrade para Business** ou **VPS**. |
 
-**Teste rápido** (vale para qualquer plano): hPanel → **Websites** → **Adicionar site**. Se na lista
-aparecer **App web Node.js** (*Node.js web app*), o plano roda o sistema. Se só aparecerem WordPress,
+**Teste rápido** (vale para qualquer plano): hPanel → **Websites** → **Criar site**. Se na lista
+aparecer **Web app Node.js**, o plano roda o sistema. Se só aparecerem WordPress,
 construtor de sites e site vazio/PHP, não roda.
 
 Fazer upgrade (hPanel → **Hospedagem** → **Fazer upgrade**) mantém o site, os e-mails e o domínio
@@ -30,14 +30,15 @@ que vocês já têm; só passa a permitir apps Node.js.
 O domínio que vocês já têm na Hostinger serve: o sistema pode ficar num subdomínio, por exemplo
 `estoque.graficasantaclara.com.br`, sem atrapalhar o site da gráfica.
 
-### Caminho A — plano Business ou Cloud (app Node.js, sem mexer em servidor)
+### Caminho A — plano Business, Cloud ou Unlimited (app Node.js, sem mexer em servidor)
 
 A Hostinger baixa o sistema direto do GitHub, instala e deixa no ar com HTTPS. A cada atualização
 no GitHub ela publica de novo sozinha — e **os dados não se perdem**, porque ficam numa pasta fora
 da publicação (`~/grafica-santa-clara-dados`, na pasta pessoal da conta).
 
-1. hPanel → **Websites** → **Adicionar site** → **App web Node.js** (*Node.js web app*).
-2. Escolha **Importar repositório Git** → **Conectar com o GitHub**. Autorize o aplicativo da
+1. hPanel → **Websites** → **Criar site** → **Web app Node.js** ("Implante seu aplicativo a partir do
+   GitHub ou GitLab, ou faça o upload de arquivos").
+2. Escolha importar do **GitHub** e conecte a conta. Autorize o aplicativo da
    Hostinger no GitHub e libere o repositório **graficaSantaClara**.
 3. Selecione o repositório e a branch **`claude/confident-mayer-dqp85k`** (ou `main`, se vocês
    juntarem as mudanças nela).

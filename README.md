@@ -78,7 +78,7 @@ Veja o guia **[docs/HOSPEDAGEM.md](docs/HOSPEDAGEM.md)**. Resumo:
 
 | Opção | Custo |
 |---|---|
-| **Hostinger Business ou Cloud** — "App web Node.js" importado do GitHub, com HTTPS e publicação automática | já incluso no plano |
+| **Hostinger Business ou Cloud** — "Web app Node.js" importado do GitHub (o plano Unlimited também tem), com HTTPS e publicação automática | já incluso no plano |
 | **Hostinger VPS** — `docker compose` + WhatsApp (Evolution API) | ~R$ 30–60/mês |
 | Computador da gráfica + Cloudflare Tunnel (acesso de qualquer lugar, com HTTPS) | R$ 0/mês + domínio ~R$ 40/ano |
 | Oracle Cloud "Always Free" | R$ 0/mês (mais técnico) |
