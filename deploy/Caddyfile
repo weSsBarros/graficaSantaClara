@@ -1,0 +1,5 @@
+# Caddy: pega o certificado HTTPS (Let's Encrypt) sozinho e encaminha para o sistema.
+{$DOMINIO} {
+	encode gzip
+	reverse_proxy app:3000
+}
