@@ -32,7 +32,8 @@ function productionTotals(db, fromIso, toIso) {
     print_input: round3(imp.input_qty || 0),
     print_waste: round3(imp.waste_qty || 0),
     print_runs: imp.count || 0,
-    waste_pct: imp.input_qty ? round3((100 * (imp.waste_qty || 0)) / imp.input_qty) : 0,
+    // perda em relação a tudo o que a impressão rendeu (boas + perdidas), na unidade do produto
+    waste_pct: imp.output_qty || imp.waste_qty ? round3((100 * (imp.waste_qty || 0)) / ((imp.output_qty || 0) + (imp.waste_qty || 0))) : 0,
     packed: round3(emp.output_qty || 0),
     packages: emp.packages || 0,
     pack_orders: emp.count || 0,
@@ -103,16 +104,6 @@ function dashboard(db, { days = 30, now = Date.now() } = {}) {
       .get(today),
   };
 
-  const machine = db
-    .prepare(
-      `SELECT COUNT(*) AS count, COALESCE(SUM(downtime_minutes), 0) AS downtime
-         FROM maintenance WHERE occurred_at >= ? AND occurred_at < ?`
-    )
-    .get(fromIso, toIso);
-  const lastMaintenance = db
-    .prepare(`SELECT type, machine, description, occurred_at FROM maintenance ORDER BY occurred_at DESC LIMIT 1`)
-    .get();
-
   return {
     period: { days, from: fromDay, to: today },
     current,
@@ -122,7 +113,6 @@ function dashboard(db, { days = 30, now = Date.now() } = {}) {
     by_product: byProduct,
     orders: ordersStats,
     alerts: items.filter((i) => i.forecast.status !== 'ok').length,
-    maintenance: { ...machine, last: lastMaintenance || null },
   };
 }
 

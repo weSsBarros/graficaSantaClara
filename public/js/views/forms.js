@@ -120,16 +120,12 @@ export async function render(ctx) {
   const noteField = (ph = '') => html`<label class="field"><span>Observação <span class="muted">(opcional)</span></span>
     <textarea class="input" name="note" maxlength="500" placeholder="${ph}"></textarea></label>`;
 
-  const productPick = () => {
-    const groups = [...new Set(products.map((p) => p.size || ''))];
-    return html`<div class="field"><span class="label">O que foi impresso?</span>
-      ${groups.map((g) => html`${g ? html`<div class="pick-group">Formato ${g}</div>` : ''}
-        <div class="pick">${products.filter((p) => (p.size || '') === g).map((p) => html`
-          <button type="button" data-product="${p.id}" aria-pressed="${p.id === state.productId}">${colorDot(p)}${p.model || p.name}
-            <small>${fmtNum(p.quantity)} ${plural(p.unit, p.quantity)} em estoque</small></button>`)}
-        </div>`)}
-    </div>`;
-  };
+  const perSheet = (p) => (p && p.yield_per_sheet > 0 ? p.yield_per_sheet : 1);
+  const productPick = () => html`<div class="field"><span class="label">O que foi produzido?</span>
+    <div class="pick">${products.map((p) => html`
+      <button type="button" data-product="${p.id}" aria-pressed="${p.id === state.productId}">${colorDot(p)}${p.name}
+        <small>${perSheet(p) === 1 ? '1 por folha' : `${fmtNum(perSheet(p))} por folha`} · ${fmtNum(p.quantity)} em estoque</small></button>`)}
+    </div></div>`;
 
   const paperField = () => {
     const pp = paper();
@@ -153,7 +149,7 @@ export async function render(ctx) {
     <div class="pick">
       ${packable.map((o) => html`<button type="button" data-order="${o.id}" aria-pressed="${o.id === state.orderId}">
         #${o.id} ${o.client_name}
-        <small>${o.due_date ? html`entrega ${fmtDay(o.due_date)}${o.late ? html` · <span class="late">atrasado</span>` : ''}` : 'sem data'} · ${fmtNum(o.quantity_total - o.packed_total)} folhas faltando</small></button>`)}
+        <small>${o.due_date ? html`entrega ${fmtDay(o.due_date)}${o.late ? html` · <span class="late">atrasado</span>` : ''}` : 'sem data'} · faltam ${fmtNum(o.quantity_total - o.packed_total)}</small></button>`)}
       <button type="button" data-order="0" aria-pressed="${state.orderId === 0}">Sem pedido<small>estoque ou avulso</small></button>
     </div></div>`;
 
@@ -169,8 +165,9 @@ export async function render(ctx) {
         ${l.item_name}<small>${l.remaining > 0 ? `faltam ${fmtNum(l.remaining)} de ${fmtNum(l.quantity)}` : 'completo'}</small></button>`)}</div></div>`;
   };
 
+  // Sem pedido: qualquer produto vendido (inclusive o papel branco, que também é vendido assim).
   const productPickSimple = () => html`<label class="field"><span>Produto</span>
-    <select class="input" data-product-select>${products.map((p) => html`<option value="${p.id}" ${p.id === state.productId ? 'selected' : ''}>${p.name} — ${fmtNum(p.quantity)} em estoque</option>`)}</select></label>`;
+    <select class="input" data-product-select>${[...products, ...papers].map((p) => html`<option value="${p.id}" ${p.id === state.productId ? 'selected' : ''}>${p.name} — ${fmtNum(p.quantity)} em estoque</option>`)}</select></label>`;
 
   const costFields = () => (finance ? html`
     <fieldset class="group"><legend>Valor da compra <span class="muted small">(opcional)</span></legend>
@@ -207,8 +204,8 @@ export async function render(ctx) {
   } else if (kind === 'impressao') {
     if (!products.length) throw new Error('Nenhum produto impresso cadastrado. Peça à administração para cadastrar em Configurações → Itens.');
     fields = html`${productPick()}<div data-paper-slot>${paperField()}</div>
-      ${qtyField('Quanto papel você usou?', 'input_qty')}
-      <label class="field"><span>Quantas folhas estragaram? <span class="muted">(perda)</span></span>
+      ${qtyField('Quantas folhas brancas você usou?', 'input_qty')}
+      <label class="field"><span data-waste-label>Quantas saíram ruins? <span class="muted">(depois de cortar e separar)</span></span>
         <input class="input" name="waste_qty" inputmode="numeric" autocomplete="off" value="0"></label>
       <div class="calc" data-calc></div>${extrasField()}${whenField()}${noteField()}`;
   } else {
@@ -217,10 +214,11 @@ export async function render(ctx) {
       <div class="form-grid cols-2">
         <label class="field"><span>Quantos pacotes?</span>
           <input class="input big" name="packages" inputmode="numeric" autocomplete="off" placeholder="0" required></label>
-        <label class="field"><span>Folhas em cada pacote</span>
+        <label class="field"><span>Quantas em cada pacote</span>
           <input class="input big" name="per_package" inputmode="numeric" autocomplete="off" placeholder="0" required></label>
       </div>
-      <label class="field"><span>Folhas estragadas <span class="muted">(perda, se houver)</span></span>
+      <div class="chips" data-per-chips style="margin:-6px 0 14px"></div>
+      <label class="field"><span>Quantas estragaram <span class="muted">(perda, se houver)</span></span>
         <input class="input" name="waste_qty" inputmode="numeric" autocomplete="off" value="0"></label>
       <div class="calc" data-calc></div>${whenField()}${noteField()}`;
   }
@@ -239,9 +237,20 @@ export async function render(ctx) {
   const val = (name) => (form.elements[name] ? form.elements[name].value : '');
 
   const perKey = () => `gsc.perPackage.${product() ? product().id : 0}`;
+  const packSizes = () => String((product() && product().package_sizes) || '').split(',').filter(Boolean);
   function fillPerPackage() {
     const input = form.elements.per_package;
-    if (input && !input.value) input.value = store.get(perKey()) || '';
+    if (!input) return;
+    if (!input.value) input.value = store.get(perKey()) || packSizes()[0] || '';
+    const chips = $('[data-per-chips]', el);
+    chips.innerHTML = String(html`${packSizes().map((n) => html`<button type="button" class="chip" data-per="${n}" aria-pressed="${input.value === n}">Pacote de ${fmtNum(Number(n))}</button>`)}`);
+    $$('[data-per]', chips).forEach((b) => {
+      b.onclick = () => {
+        input.value = b.dataset.per;
+        $$('[data-per]', chips).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        updateCalc();
+      };
+    });
   }
 
   function refreshUnit() {
@@ -258,7 +267,8 @@ export async function render(ctx) {
     if (kind === 'impressao') {
       const used = toBase(parseNum(val('input_qty')));
       const waste = parseNum(val('waste_qty')) || 0;
-      return { item: m, used, waste, good: used - waste, after: m ? m.quantity - used : 0 };
+      const expected = used * perSheet(product());
+      return { item: m, used, waste, expected, good: expected - waste, after: m ? m.quantity - used : 0 };
     }
     if (kind === 'empacotamento') {
       const packages = parseNum(val('packages'));
@@ -282,11 +292,12 @@ export async function render(ctx) {
     if (kind === 'impressao') {
       const p = product();
       if (!item) calc.innerHTML = String(html`<span class="muted">Escolha o papel usado.</span>`);
-      else if (!(c.used > 0)) calc.innerHTML = String(html`<span class="muted">Digite quanto papel foi usado.</span>${balanceLine(item, item.quantity)}`);
-      else if (c.waste > c.used) calc.innerHTML = String(html`<span style="color:var(--critical-ink)">A perda é maior que o total usado.</span>`);
+      else if (!(c.used > 0)) calc.innerHTML = String(html`<span class="muted">Digite quantas folhas brancas foram usadas.</span>${balanceLine(item, item.quantity)}`);
+      else if (c.waste > c.expected) calc.innerHTML = String(html`<span style="color:var(--critical-ink)">A perda é maior que o total produzido (${fmtQty(c.expected, p.unit)}).</span>`);
       else {
-        calc.innerHTML = String(html`<span>Saem <b>${fmtQty(c.good, p.unit)}</b> de ${p.name}
-          ${c.waste > 0 ? html`<br><span class="small muted">Perda: ${fmtNum((100 * c.waste) / c.used, 1)}%</span>` : ''}</span>${balanceLine(item, c.after)}`);
+        calc.innerHTML = String(html`<span>${perSheet(p) !== 1 ? html`${fmtNum(c.used)} ${plural(item.unit, c.used)} × ${fmtNum(perSheet(p))} = ${fmtNum(c.expected)}<br>` : ''}
+          Ficam <b>${fmtQty(c.good, p.unit)}</b> boas de ${p.name}
+          ${c.waste > 0 ? html`<br><span class="small muted">Perda: ${fmtQty(c.waste, p.unit)} (${fmtNum((100 * c.waste) / c.expected, 1)}%)</span>` : ''}</span>${balanceLine(item, c.after)}`);
       }
       return;
     }
@@ -294,7 +305,7 @@ export async function render(ctx) {
       const line = currentLine();
       let main = c.packed > 0
         ? html`<span>Total: <b>${fmtQty(c.packed, item.unit)}</b> em ${fmtNum(c.packages)} ${plural('pacote', c.packages)}</span>`
-        : html`<span class="muted">Digite o número de pacotes e quantas folhas vão em cada um.</span>`;
+        : html`<span class="muted">Digite o número de pacotes e quantas vão em cada um.</span>`;
       if (line && c.packed > 0) {
         const left = line.remaining - c.packed;
         main = html`${main}<span class="small ${left < 0 ? 'late' : 'muted'}">${left > 0 ? `Pedido: faltarão ${fmtNum(left)}` : left === 0 ? 'Completa este produto do pedido' : `Passa ${fmtNum(-left)} do pedido`}</span>`;
@@ -480,7 +491,7 @@ export async function render(ctx) {
       const p = product();
       if (!item) return toast('Escolha o papel usado.', { error: true });
       if (!(c.used > 0)) return toast('Digite quanto papel foi usado.', { error: true });
-      if (!(c.waste >= 0) || c.waste > c.used) return toast('Confira a perda.', { error: true });
+      if (!(c.waste >= 0) || c.waste > c.expected) return toast('Confira a perda.', { error: true });
       const extras = $$('[data-extra]', el)
         .map((x) => ({ item_id: Number(x.dataset.extra), quantity: parseNum(x.value) }))
         .filter((x) => x.quantity > 0);
@@ -489,14 +500,14 @@ export async function render(ctx) {
       store.set('gsc.lastProduct', String(p.id));
       lines = [
         html`Produto: <b>${p.name}</b>`,
-        html`Usou: ${qtyWithPack(item, c.used)} de ${item.name}`,
-        html`Perda: <b>${fmtQty(c.waste, item.unit)}</b>`,
-        html`Resultado: <b>${fmtQty(c.good, p.unit)}</b> prontas`,
+        html`Usou: ${qtyWithPack(item, c.used)} de ${item.name}${perSheet(p) !== 1 ? ` (rende ${fmtNum(perSheet(p))} por folha)` : ''}`,
+        html`Perda: <b>${fmtQty(c.waste, p.unit)}</b>`,
+        html`Resultado: <b>${fmtQty(c.good, p.unit)}</b> boas`,
         ...extras.map((x) => html`Também usou: <b>${fmtQty(x.quantity, byId.get(x.item_id).unit)}</b> de ${byId.get(x.item_id).name}`),
       ];
     } else if (kind === 'empacotamento') {
       if (!(c.packages > 0) || !Number.isInteger(c.packages)) return toast('Digite o número de pacotes (inteiro).', { error: true });
-      if (!(c.per > 0)) return toast('Digite quantas folhas vão em cada pacote.', { error: true });
+      if (!(c.per > 0)) return toast('Digite quantas vão em cada pacote.', { error: true });
       if (!(c.waste >= 0)) return toast('Confira a perda.', { error: true });
       const line = currentLine();
       const o = currentOrder();

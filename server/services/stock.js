@@ -316,15 +316,29 @@ function impressao(db, user, body, ctx) {
   const input = getActiveItem(db, inputId);
   if (input.id === product.id) throw new HttpError(400, 'O papel usado deve ser diferente do produto.');
   const used = toBase(input, num(body.input_qty, 'quantas folhas foram usadas', { positive: true, max: 1e9 }), body.input_unit);
-  const waste = round3(num(body.waste_qty, 'a perda', { min: 0, max: 1e9, required: false }) ?? 0);
-  if (waste > used) throw new HttpError(400, 'A perda não pode ser maior que o total usado.');
+  // Cada folha de papel rende `yield_per_sheet` unidades do produto (ex.: Splash, 8 por folha).
+  // A perda é contada em unidades do produto, na hora de cortar e separar o bom do ruim.
+  const perSheet = product.yield_per_sheet > 0 ? product.yield_per_sheet : 1;
+  const expected = round3(used * perSheet);
+  let waste;
+  if (body.good_qty !== undefined && body.good_qty !== null && body.good_qty !== '') {
+    const good = num(body.good_qty, 'quantas saíram boas', { min: 0, max: 1e9 });
+    if (good > expected + 1e-9) {
+      throw new HttpError(400, `Com ${fmtQty(used, input.unit)} saem no máximo ${fmtQty(expected, product.unit)} de ${product.name}.`);
+    }
+    waste = round3(expected - good);
+  } else {
+    waste = round3(num(body.waste_qty, 'a perda', { min: 0, max: 1e9, required: false }) ?? 0);
+  }
+  if (waste > expected) throw new HttpError(400, 'A perda não pode ser maior que o total produzido.');
   const extras = readExtras(db, body.extras, [input.id, product.id]);
   const note = str(body.note, 'observação', { max: 500 });
   const occurredAt = resolveOccurredAt(body.occurred_at, user);
-  const good = round3(used - waste);
+  const good = round3(expected - waste);
 
-  let summary = `Impressão de ${product.name}: ${fmtItemQty(input, used)} de ${input.name} → ${fmtQty(good, product.unit)} prontas`;
-  if (waste) summary += ` (perda de ${fmtQty(waste, input.unit)})`;
+  let summary = `Impressão de ${product.name}: ${fmtItemQty(input, used)} de ${input.name}` +
+    `${perSheet !== 1 ? ` (${fmtNum(perSheet)} por folha)` : ''} → ${fmtQty(good, product.unit)} boas`;
+  if (waste) summary += ` (perda de ${fmtQty(waste, product.unit)})`;
   if (extras.length) summary += `; usou ${extras.map((e) => `${e.item.name} (${fmtQty(e.qty, e.item.unit)})`).join(', ')}`;
   const moves = [
     { itemId: input.id, delta: -used },

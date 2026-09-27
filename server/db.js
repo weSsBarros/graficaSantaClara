@@ -343,6 +343,38 @@ const MIGRATIONS = [
       });
     }
   },
+
+  // ---------- v4: produtos da gráfica, rendimento por folha, cidade do cliente, nota fiscal ----------
+  // O papel é o branco 94x66 e cada produto diz quanto rende uma folha branca (Amarelo pequeno,
+  // Oferta e Aproveite: 2; Splash: 8). Se o catálogo inicial antigo ainda não foi usado, é trocado.
+  (db) => {
+    db.exec(`
+      ALTER TABLE items ADD COLUMN yield_per_sheet REAL NOT NULL DEFAULT 1;  -- unidades por folha de papel
+      ALTER TABLE items ADD COLUMN package_sizes TEXT;                      -- pacotes usuais, ex.: '150,200'
+      ALTER TABLE clients ADD COLUMN city TEXT;                             -- vazio = São Luís
+      ALTER TABLE orders ADD COLUMN channel TEXT;                           -- por onde chegou (WhatsApp, e-mail...)
+      ALTER TABLE orders ADD COLUMN invoice_number TEXT;                    -- nota fiscal
+      ALTER TABLE orders ADD COLUMN invoice_at TEXT;
+    `);
+    if (!db.prepare('SELECT 1 FROM items LIMIT 1').get()) return; // banco novo: o cadastro inicial já vem certo
+    const used = db.prepare('SELECT (SELECT COUNT(*) FROM movements) + (SELECT COUNT(*) FROM order_items) AS n').get().n;
+    if (used) return; // já em uso: a administração ajusta os itens pela tela
+    const OLD = ['Papel branco 46x66', 'Papel branco 96x64'];
+    for (const m of ['Oferta', 'Aproveite', 'Splash']) OLD.push(`${m} 46x66`, `${m} 96x64`);
+    const old = db.prepare(`SELECT id FROM items WHERE name IN (${OLD.map(() => '?').join(',')})`).all(...OLD).map((r) => r.id);
+    if (!old.length) return;
+    const list = old.join(',');
+    db.exec(`UPDATE items SET made_from_item_id = NULL WHERE made_from_item_id IN (${list}) AND id NOT IN (${list})`);
+    db.exec(`DELETE FROM items WHERE id IN (${list})`);
+    const { insertSeedItems } = require('./seed');
+    const { audit } = require('./audit');
+    insertSeedItems(db);
+    audit(db, {
+      action: 'item_criado',
+      summary: 'Catálogo atualizado: Papel branco 94x66 (pacote de 150), Amarelo grande 94x66, Amarelo pequeno 46x64, ' +
+        'Oferta, Aproveite e Splash, com o rendimento de cada um por folha branca.',
+    });
+  },
 ];
 
 function migrate(db) {

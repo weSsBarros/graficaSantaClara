@@ -50,7 +50,6 @@ function createApp(db) {
   api.use(require('./routes/auth')(db));
   api.use(require('./routes/items')(db));
   api.use(require('./routes/ops')(db));
-  api.use(require('./routes/maintenance')(db));
   api.use(require('./routes/orders')(db));
   api.use(require('./routes/finance')(db));
   api.use(require('./routes/admin')(db));
@@ -65,7 +64,7 @@ function createApp(db) {
     if (err.type === 'entity.parse.failed') err = new HttpError(400, 'Dados inválidos.');
     const status = err.status || err.statusCode || 500;
     if (status >= 500) console.error(`[erro] ${req.method} ${req.originalUrl}`, err);
-    res.status(status).json({ error: status >= 500 ? 'Erro interno. Tente de novo.' : err.message });
+    res.status(status).json(status >= 500 ? { error: 'Erro interno. Tente de novo.' } : { ...(err.extra || {}), error: err.message });
   });
 
   return app;

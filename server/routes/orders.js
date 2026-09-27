@@ -15,6 +15,11 @@ module.exports = function orderRoutes(db) {
     res.json(orders.listOrders(db, req.user, req.query));
   });
 
+  // Regras para a tela de pedido: mínimo de unidades, valor mínimo fora de São Luís, canais.
+  r.get('/orders/rules', requireUser, (_req, res) => {
+    res.json({ ...orders.orderRules(db), channels: orders.CHANNELS });
+  });
+
   r.get('/orders/:id', requireUser, (req, res) => {
     const order = orders.getOrder(db, req.user, id(req));
     const ops = stock.listOperations(db, req.user, { order_id: order.id, limit: 200 }).operations;
@@ -27,6 +32,10 @@ module.exports = function orderRoutes(db) {
 
   r.put('/orders/:id', requirePerm('pedidos'), (req, res) => {
     res.json(orders.updateOrder(db, req.user, id(req), req.body, ctx(req)));
+  });
+
+  r.post('/orders/:id/invoice', requirePerm('pedidos'), (req, res) => {
+    res.json(orders.setInvoice(db, req.user, id(req), req.body, ctx(req)));
   });
 
   r.post('/orders/:id/ship', requirePerm('entrega'), (req, res) => {

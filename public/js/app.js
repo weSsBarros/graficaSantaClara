@@ -7,7 +7,6 @@ import * as item from './views/item.js';
 import * as forms from './views/forms.js';
 import * as dashboard from './views/dashboard.js';
 import * as historyView from './views/history.js';
-import * as maintenance from './views/maintenance.js';
 import * as logs from './views/logs.js';
 import * as config from './views/config.js';
 import * as more from './views/more.js';
@@ -33,7 +32,6 @@ const ROUTES = [
   ['/financeiro', financeView],
   ['/financeiro/:tab', financeView],
   ['/historico', historyView],
-  ['/manutencao', maintenance],
   ['/logs', logs],
   ['/config', config],
   ['/config/:tab', config],
@@ -70,7 +68,6 @@ function navItems() {
     { href: '#/painel', label: 'Painel', icon: 'chart', match: ['/painel'] },
     p.includes('ver_financeiro') && { href: '#/financeiro', label: 'Financeiro', icon: 'money', match: ['/financeiro'], side: true },
     { href: '#/historico', label: 'Histórico', icon: 'clock', match: ['/historico'], side: true },
-    { href: '#/manutencao', label: 'Manutenção', icon: 'wrench', match: ['/manutencao'], side: true },
     p.includes('ver_logs') && { href: '#/logs', label: 'Registro de atividades', icon: 'log', match: ['/logs'], side: true },
     p.includes('cadastros') && { href: '#/config', label: 'Configurações', icon: 'settings', match: ['/config'], side: true },
   ].filter(Boolean);
@@ -98,11 +95,13 @@ function renderShell() {
           <div class="title" id="page-title">Gráfica Santa Clara</div>
           <a class="avatar" href="#/mais" aria-label="Minha conta">${initials(u.name)}</a>
         </header>
+        ${state.me.config.demo_data ? html`<div class="demo-bar" role="note">${icon('info')}<span><b>Dados fictícios, só para testar.</b>
+          ${state.me.perms.includes('sistema') ? html`Para começar de verdade: <a href="#/config/sistema">Configurações → Sistema → Zerar</a>.` : 'A Administração zera antes de começar de verdade.'}</span></div>` : ''}
         <main class="main" id="view"></main>
       </div>
       <nav class="bottomnav" aria-label="Navegação principal">
         ${items.filter((n) => !n.side).map((n) => html`<a href="${n.href}" data-match="${n.match.join(',')}">${icon(n.icon)}${n.label}</a>`)}
-        <a href="#/mais" data-match="/mais,/manutencao,/logs,/config,/pin,/historico,/financeiro">${icon('menu')}Mais</a>
+        <a href="#/mais" data-match="/mais,/logs,/config,/pin,/historico,/financeiro">${icon('menu')}Mais</a>
       </nav>
     </div>`);
   $('[data-logout]').onclick = logout;

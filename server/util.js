@@ -3,9 +3,11 @@
 const config = require('./config');
 
 class HttpError extends Error {
-  constructor(status, message) {
+  /** `extra` vai junto na resposta (ex.: { code: 'abaixo_do_minimo' }) para a tela decidir o que fazer. */
+  constructor(status, message, extra = null) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
 }
 

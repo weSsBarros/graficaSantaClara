@@ -14,10 +14,9 @@ function quickActions(me, data) {
     list.push({ href: '#/lancar/empacotamento', icon: 'package', label: 'Registrar empacotamento', sub: o.open ? `${o.open} ${o.open === 1 ? 'pedido' : 'pedidos'} em andamento` : 'Separar em pacotes', primary: !me.manager });
   }
   if (p('pedidos')) list.push({ href: '#/pedido/novo', icon: 'plus', label: 'Novo pedido', sub: 'Cliente, produtos e prazo' });
-  if (p('entrega')) list.push({ href: '#/pedidos?status=para_entregar', icon: 'truck', label: 'Entregas', sub: o.ready ? `${o.ready} ${o.ready === 1 ? 'pronto' : 'prontos'} para entregar` : 'Saída e entrega de pedidos' });
+  if (p('entrega')) list.push({ href: '#/pedidos?status=para_entregar', icon: 'truck', label: 'Entregas', sub: o.ready ? `${o.ready} ${o.ready === 1 ? 'pedido separado' : 'pedidos separados'} para entregar` : 'Saída e entrega de pedidos' });
   if (p('entrada')) list.push({ href: '#/lancar/entrada', icon: 'in', label: 'Entrada de material', sub: 'Compra ou recebimento' });
   if (p('retirada')) list.push({ href: '#/lancar/retirada', icon: 'out', label: 'Retirada de material', sub: 'Ex.: tinta, chapa' });
-  if (p('manutencao')) list.push({ href: '#/manutencao', icon: 'wrench', label: 'Manutenção da máquina', sub: 'Limpeza, conserto, peças' });
   if (p('ajuste')) list.push({ href: '#/lancar/ajuste', icon: 'count', label: 'Contagem de estoque', sub: 'Conferir e corrigir o saldo' });
   if (p('financeiro')) list.push({ href: '#/financeiro/lancamentos?novo=despesa', icon: 'money', label: 'Lançar despesa', sub: 'Contas, gastos, chapa...' });
   if (me.manager) list.push({ href: '#/painel', icon: 'chart', label: 'Painel', sub: 'Produção e previsões' });
@@ -90,17 +89,17 @@ export async function render(ctx) {
       <div class="card-head"><h2>Para entregar</h2><a class="small" href="#/pedidos?status=para_entregar">Ver todos</a></div>
       ${deliveries.orders.length
         ? html`<div class="items">${deliveries.orders.map(orderCard)}</div>`
-        : html`<div class="card"><p class="muted" style="margin:0">Nenhum pedido pronto para entregar agora.</p></div>`}
+        : html`<div class="card"><p class="muted" style="margin:0">Nenhum pedido separado para entregar agora.</p></div>`}
     </div>` : ''}
 
     <div class="section">
       <h2>Hoje</h2>
       <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
-        <div class="tile"><p class="label">Folhas impressas</p><div class="value">${fmtNum(t.printed)}</div></div>
-        <div class="tile"><p class="label">Folhas empacotadas</p><div class="value">${fmtNum(t.packed)}</div></div>
+        <div class="tile"><p class="label">Produzido hoje</p><div class="value">${fmtNum(t.printed)}</div></div>
+        <div class="tile"><p class="label">Empacotado hoje</p><div class="value">${fmtNum(t.packed)}</div></div>
         <div class="tile"><p class="label">Pacotes</p><div class="value">${fmtNum(t.packages)}</div></div>
         <a class="tile" href="#/pedidos" style="text-decoration:none;color:inherit"><p class="label">Pedidos em andamento</p><div class="value">${fmtNum(o.open)}</div>
-          <div class="delta">${o.ready ? `${o.ready} pronto(s) para entregar` : 'nenhum pronto para entregar'}</div></a>
+          <div class="delta">${o.ready ? `${o.ready} separado(s) para entregar` : 'nenhum separado para entregar'}</div></a>
       </div>
     </div>
 

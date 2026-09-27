@@ -32,8 +32,10 @@ function weeklyReport(db, { today = localDate(), includeFinance = true } = {}) {
   const imp = prod.find((r) => r.type === 'impressao') || {};
   const emp = prod.find((r) => r.type === 'empacotamento') || {};
   lines.push('🖨️ Produção');
-  lines.push(`• Impressas: ${fmtNum(imp.output || 0)} folhas` + (imp.input ? ` (perda ${fmtNum((100 * (imp.waste || 0)) / imp.input, 1)}%)` : ''));
-  lines.push(`• Empacotadas: ${fmtNum(emp.output || 0)} folhas em ${fmtNum(emp.packages || 0)} pacotes`);
+  const made = (imp.output || 0) + (imp.waste || 0);
+  lines.push(`• Produzido: ${fmtNum(imp.output || 0)} (de ${fmtNum(imp.input || 0)} folhas brancas)` +
+    (made ? ` · perda ${fmtNum((100 * (imp.waste || 0)) / made, 1)}%` : ''));
+  lines.push(`• Empacotado: ${fmtNum(emp.output || 0)} em ${fmtNum(emp.packages || 0)} pacotes`);
   const byProduct = db
     .prepare(
       `SELECT i.name, SUM(m.delta) AS qty FROM movements m JOIN operations o ON o.id = m.operation_id JOIN items i ON i.id = m.item_id

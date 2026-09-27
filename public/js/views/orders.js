@@ -23,8 +23,10 @@ export function orderCard(o) {
       ${o.due_date ? html`Entrega: <span class="${o.late ? 'late' : ''}">${fmtDay(o.due_date)}${o.late ? ' (atrasado)' : ''}</span>` : 'Sem data de entrega'}
       ${o.total !== undefined && o.total > 0 ? html` · ${brl(o.total)}` : ''}
       ${o.payment && o.payment.status === 'pago' ? ' · pago' : ''}
+      ${o.total !== undefined && o.status !== 'cancelado' ? html` · ${o.invoice_number ? `NF ${o.invoice_number}` : html`<span class="late">sem nota fiscal</span>`}` : ''}
     </div>
-    ${['pronto', 'saiu'].includes(o.status) && o.client_address ? html`<div class="small addr" style="margin-top:4px">${icon('pin')} ${o.client_address}</div>` : ''}
+    ${o.outside ? html`<div class="row wrap" style="gap:6px;margin-top:6px"><span class="tag">Fora de São Luís: ${o.client_city}</span></div>` : ''}
+    ${['pronto', 'saiu'].includes(o.status) && o.client_address ? html`<div class="small addr" style="margin-top:4px">${icon('pin')} ${o.client_address}${o.outside ? ` — ${o.client_city}` : ''}</div>` : ''}
     <ul class="order-lines">${o.items.map((l) => html`<li>
       <div class="row between small"><span>${l.item_name}</span><span class="num">${fmtNum(Math.min(l.packed, l.quantity))} / ${fmtNum(l.quantity)}</span></div>
     </li>`)}</ul>
@@ -100,7 +102,7 @@ async function clientsTab(ctx) {
         <h2 style="margin-bottom:8px">Clientes (${clients.length})</h2>
         ${clients.length ? html`<ul class="list">${clients.map((c) => html`<li>
           <div class="row between wrap"><div><b>${c.name}</b> ${c.active ? '' : html`<span class="tag">Desativado</span>`}
-            <div class="small muted">${[c.phone, c.address].filter(Boolean).join(' · ') || 'sem contato cadastrado'}</div>
+            <div class="small muted">${[c.city || 'São Luís', c.phone, c.address].filter(Boolean).join(' · ')}</div>
             <div class="xs muted">${c.orders} ${c.orders === 1 ? 'pedido' : 'pedidos'}</div></div>
             <div class="row">
               <a class="btn ghost sm" href="#/pedidos?${new URLSearchParams({ status: '', q: c.name })}">Pedidos</a>
@@ -112,7 +114,11 @@ async function clientsTab(ctx) {
         <input type="hidden" name="id">
         <label class="field"><span>Nome</span><input class="input" name="name" required maxlength="120"></label>
         <label class="field"><span>Telefone / WhatsApp</span><input class="input" name="phone" inputmode="tel" maxlength="40"></label>
-        <label class="field"><span>Endereço de entrega</span><input class="input" name="address" maxlength="300"></label>
+        <div class="form-grid cols-2">
+          <label class="field"><span>Endereço de entrega</span><input class="input" name="address" maxlength="300"></label>
+          <label class="field"><span>Cidade</span><input class="input" name="city" maxlength="60" placeholder="São Luís">
+            <span class="hint">Em branco = São Luís.</span></label>
+        </div>
         <div class="form-grid cols-2">
           <label class="field"><span>E-mail</span><input class="input" name="email" type="email" maxlength="120"></label>
           <label class="field"><span>CPF/CNPJ</span><input class="input" name="document" maxlength="30"></label>
@@ -128,7 +134,7 @@ async function clientsTab(ctx) {
   $$('[data-edit]', el).forEach((b) => {
     b.onclick = () => {
       const c = clients.find((x) => String(x.id) === b.dataset.edit);
-      for (const k of ['id', 'name', 'phone', 'address', 'email', 'document', 'notes']) form.elements[k].value = c[k] || '';
+      for (const k of ['id', 'name', 'city', 'phone', 'address', 'email', 'document', 'notes']) form.elements[k].value = c[k] || '';
       form.elements.active.checked = !!c.active;
       $('[data-active-wrap]', el).classList.remove('hidden');
       $('[data-form-title]', el).textContent = `Editar: ${c.name}`;

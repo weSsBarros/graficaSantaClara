@@ -22,7 +22,6 @@ const PERMS = {
   empacotamento: 'Registrar empacotamento',
   entrada: 'Registrar entrada (compra que chegou)',
   retirada: 'Registrar retirada (ex.: tinta, chapa)',
-  manutencao: 'Registrar manutenção de máquina',
   pedidos: 'Criar e editar pedidos e clientes (vê os preços dos pedidos)',
   entrega: 'Registrar saída e entrega de pedidos',
   ver_financeiro: 'Ver o financeiro e os valores (sem lançar nada)',
@@ -41,7 +40,7 @@ const DEFAULT_ROLE_PERMS = {
   // atividades), mas não lança nem altera nada.
   dono: ['ver_financeiro', 'ver_logs'],
   auxiliar: ['entrada', 'retirada', 'pedidos', 'entrega', 'ver_logs'],
-  impressor: ['impressao', 'entrada', 'retirada', 'manutencao'],
+  impressor: ['impressao', 'entrada', 'retirada'],
   empacotador: ['empacotamento', 'retirada', 'entrega'],
   entregador: ['entrega'],
 };

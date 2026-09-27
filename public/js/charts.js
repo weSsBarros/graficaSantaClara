@@ -137,7 +137,7 @@ const line = (color, extra = {}) => ({
   ...extra,
 });
 
-/** Produção diária: folhas impressas x folhas empacotadas. */
+/** Produção diária: produzido x empacotado. */
 export function productionChart(canvas, daily) {
   const t = theme();
   return make(canvas, {
@@ -145,8 +145,8 @@ export function productionChart(canvas, daily) {
     data: {
       labels: daily.map((d) => fmtDay(d.day)),
       datasets: [
-        { label: 'Impressas', data: daily.map((d) => d.printed), ...line(t.s1) },
-        { label: 'Empacotadas', data: daily.map((d) => d.packed), ...line(t.s2) },
+        { label: 'Produzido', data: daily.map((d) => d.printed), ...line(t.s1) },
+        { label: 'Empacotado', data: daily.map((d) => d.packed), ...line(t.s2) },
       ],
     },
     options: {
@@ -415,7 +415,7 @@ export function categoryChart(canvas, rows) {
   });
 }
 
-/** Produção por produto no período: impressas x empacotadas (barras horizontais lado a lado). */
+/** Produção por produto no período: produzido x empacotado (barras horizontais lado a lado). */
 export function productChart(canvas, rows) {
   const t = theme();
   canvas.parentElement.style.height = `${Math.max(140, rows.length * 52 + 40)}px`;
@@ -428,8 +428,8 @@ export function productChart(canvas, rows) {
     data: {
       labels: rows.map((r) => r.name),
       datasets: [
-        { label: 'Impressas', data: rows.map((r) => r.printed), ...bar(t.s1) },
-        { label: 'Empacotadas', data: rows.map((r) => r.packed), ...bar(t.s2) },
+        { label: 'Produzido', data: rows.map((r) => r.printed), ...bar(t.s1) },
+        { label: 'Empacotado', data: rows.map((r) => r.packed), ...bar(t.s2) },
       ],
     },
     options: {
@@ -443,7 +443,7 @@ export function productChart(canvas, rows) {
       plugins: {
         ...base(t).plugins,
         crosshair: { disabled: true },
-        tooltip: { ...tooltipStyle(t), boxHeight: 10, callbacks: { label: (c) => ` ${fmtNum(c.parsed.x)} folhas  ·  ${c.dataset.label}` } },
+        tooltip: { ...tooltipStyle(t), boxHeight: 10, callbacks: { label: (c) => ` ${fmtNum(c.parsed.x)}  ·  ${c.dataset.label}` } },
       },
     },
   });

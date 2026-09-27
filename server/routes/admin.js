@@ -16,6 +16,8 @@ const { sendCsv } = require('../csv');
 const notify = require('../services/notify');
 const stock = require('../services/stock');
 const { driverName } = require('../sqlite');
+const { generateDemo, isFresh } = require('../demo-data');
+const { resetData } = require('../reset');
 
 const APP_ROOT = path.join(__dirname, '..', '..');
 
@@ -154,8 +156,12 @@ module.exports = function adminRoutes(db) {
   // ---------- configurações ----------
 
   const SETTINGS = {
-    forecast_window_days: { label: 'Dias usados para calcular a média de consumo', min: 7, max: 180, def: 30 },
-    purchase_coverage_days: { label: 'Dias de consumo que a sugestão de compra deve cobrir', min: 7, max: 180, def: 30 },
+    forecast_window_days: { group: 'previsao', label: 'Dias usados para calcular a média de consumo', min: 7, max: 180, def: 30, unit: 'dias' },
+    purchase_coverage_days: { group: 'previsao', label: 'Dias de consumo que a sugestão de compra deve cobrir', min: 7, max: 180, def: 30, unit: 'dias' },
+    min_order_units: { group: 'pedidos', label: 'Pedido mínimo (unidades)', min: 0, max: 1000000, def: 300, unit: 'unidades' },
+    min_order_value_outside: {
+      group: 'pedidos', label: 'Valor mínimo de pedido para fora de São Luís (R$)', min: 0, max: 10000000, def: 0, unit: 'reais', decimal: true,
+    },
   };
 
   r.get('/settings', requireUser, (_req, res) => {
@@ -168,7 +174,7 @@ module.exports = function adminRoutes(db) {
     const changes = {};
     for (const [k, s] of Object.entries(SETTINGS)) {
       if (req.body[k] === undefined) continue;
-      const v = num(req.body[k], s.label, { integer: true, min: s.min, max: s.max });
+      const v = num(req.body[k], s.label, { integer: !s.decimal, min: s.min, max: s.max });
       const old = getSetting(db, k, s.def);
       if (v !== old) {
         setSetting(db, k, v);
@@ -254,9 +260,32 @@ module.exports = function adminRoutes(db) {
       driver: driverName(),
       node: process.version,
       started_at: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+      fresh: isFresh(db),
+      demo: getSetting(db, 'demo_data', null),
       // Numa hospedagem que apaga a pasta do sistema a cada publicação, os dados não podem ficar dentro dela.
       data_at_risk: config.managedDeploy && !rel.startsWith('..') && !path.isAbsolute(rel),
     });
+  });
+
+  // Dados fictícios para testar tudo (só num sistema ainda sem lançamentos).
+  r.post('/system/demo', requirePerm('sistema'), (req, res) => {
+    if (!isFresh(db)) {
+      throw new HttpError(409, 'O sistema já tem lançamentos, pedidos ou contas. Para testar com dados fictícios, zere o sistema primeiro.');
+    }
+    generateDemo(db, { days: 90, by: req.user });
+    res.json({ ok: true });
+  });
+
+  // Zerar o sistema (depois dos testes): faz uma cópia de segurança antes de apagar.
+  r.post('/system/reset', requirePerm('sistema'), async (req, res) => {
+    if (String(req.body.confirm || '').trim().toUpperCase() !== 'ZERAR') {
+      throw new HttpError(400, 'Para confirmar, digite ZERAR.');
+    }
+    fs.mkdirSync(config.backupDir, { recursive: true });
+    const name = `antes-de-zerar-${localDate()}-${Date.now()}.db`;
+    await db.backup(path.join(config.backupDir, name));
+    resetData(db, req.user, { backupFile: name });
+    res.json({ ok: true, backup: name });
   });
 
   // Cópia de segurança do banco inteiro, para guardar fora do computador/servidor.

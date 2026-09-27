@@ -89,7 +89,6 @@ module.exports = function opsRoutes(db) {
       clients: distinct('SELECT name AS v FROM clients WHERE active = 1 ORDER BY name'),
       suppliers: col('supplier'),
       reasons: col('reason'),
-      machines: distinct('SELECT machine AS v FROM maintenance GROUP BY machine ORDER BY MAX(occurred_at) DESC LIMIT 20'),
       models: distinct('SELECT DISTINCT model AS v FROM items WHERE model IS NOT NULL ORDER BY model'),
       sizes: distinct('SELECT DISTINCT size AS v FROM items WHERE size IS NOT NULL ORDER BY size'),
       brands: distinct('SELECT DISTINCT brand AS v FROM items WHERE brand IS NOT NULL ORDER BY brand'),
