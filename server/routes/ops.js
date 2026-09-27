@@ -7,6 +7,7 @@ const { sendCsv } = require('../csv');
 const stock = require('../services/stock');
 const orders = require('../services/orders');
 const { dashboard } = require('../services/dashboard');
+const { can } = require('../permissions');
 
 module.exports = function opsRoutes(db) {
   const r = express.Router();
@@ -104,6 +105,8 @@ module.exports = function opsRoutes(db) {
       alerts: d.items.filter((i) => i.forecast.status !== 'ok'),
       orders: d.orders,
       my_operations: mine.operations,
+      // Para quem faz entregas: pedidos prontos e na rua, pela data combinada.
+      deliveries: can(req.user, 'entrega') ? orders.listOrders(db, req.user, { status: 'para_entregar', limit: 6 }) : null,
     });
   });
 

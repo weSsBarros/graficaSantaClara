@@ -517,3 +517,5 @@ pre.report { white-space: pre-wrap; font: .9rem/1.5 var(--font); background: var
 .sysinfo dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .alert-card { border: 1px solid var(--critical-ink); margin-bottom: 16px; }
 @media (max-width: 600px) { .sysinfo { grid-template-columns: 1fr; } .sysinfo dd { margin-bottom: 6px; } }
+.addr svg { width: 16px; height: 16px; vertical-align: -3px; color: var(--text-2); }
+.contact a { color: inherit; text-decoration: underline; text-decoration-color: var(--grid); text-underline-offset: 3px; }

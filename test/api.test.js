@@ -9,6 +9,7 @@ const { createApp } = require('../server/app');
 const { seedIfEmpty, INITIAL_PIN } = require('../server/seed');
 const { forecastItem } = require('../server/services/forecast');
 const { toCsv } = require('../server/csv');
+const { hashPin } = require('../server/auth');
 const { runSchedules } = require('../server/scheduler');
 
 let db;
@@ -18,6 +19,8 @@ let base;
 before(async () => {
   db = openDb(':memory:');
   seedIfEmpty(db, { log: () => {} });
+  // A função "Auxiliar administrativo" está sem ninguém na equipe; os testes usam a Ana.
+  db.prepare("INSERT INTO users (name, role, pin_hash, created_at) VALUES ('Ana', 'auxiliar', ?, ?)").run(hashPin(INITIAL_PIN), new Date().toISOString());
   server = createApp(db).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -70,10 +73,15 @@ const ok = (r, status = 201) => {
 
 // ---------- acesso ----------
 
-test('lista as 5 pessoas na tela de login', async () => {
+test('equipe inicial: sem a Gabrielle e com o Wesley nas entregas', async () => {
   const r = await client().get('/api/auth/users');
   assert.equal(r.status, 200);
-  assert.deepEqual(r.data.map((u) => u.name).sort(), ['Eulir', 'Gabrielle', 'Joatan', 'Márcia', 'Natan']);
+  // "Ana" é a auxiliar administrativa criada só para os testes
+  assert.deepEqual(r.data.map((u) => u.name).sort(), ['Ana', 'Eulir', 'Joatan', 'Márcia', 'Natan', 'Wesley']);
+  assert.equal(db.prepare("SELECT role FROM users WHERE name = 'Wesley'").get().role, 'entregador');
+  const me = ok(await (await client().login('Wesley')).get('/api/me'), 200);
+  assert.equal(me.user.role_label, 'Entregador');
+  assert.deepEqual(me.perms, ['entrega']);
 });
 
 test('sem login a API responde 401', async () => {
@@ -138,7 +146,7 @@ test('entrada em resmas vira folhas; com valor gera despesa a pagar', async () =
 });
 
 test('sem permissão de financeiro não informa valor, mas registra a entrada', async () => {
-  const c = await client().login('Gabrielle');
+  const c = await client().login('Ana');
   assert.equal((await c.post('/api/ops/entrada', { item_id: itemId('Tinta amarela'), quantity: 10, total_cost: 400 })).status, 403);
   ok(await c.post('/api/ops/entrada', { item_id: itemId('Tinta amarela'), quantity: 10 }));
   ok(await c.post('/api/ops/entrada', { item_id: itemId('Chapa de impressão'), quantity: 40 }));
@@ -178,9 +186,9 @@ test('impressão: perda maior que o usado e produto que não é impresso são re
 
 let orderId;
 
-test('secretaria cria pedido com preços; impressor não cria e não vê valores', async () => {
-  const gabi = await client().login('Gabrielle');
-  const o = ok(await gabi.post('/api/orders', {
+test('auxiliar administrativo cria pedido com preços; impressor não cria e não vê valores', async () => {
+  const ana = await client().login('Ana');
+  const o = ok(await ana.post('/api/orders', {
     client_name: 'Supermercado Cohama', due_date: '2030-01-05',
     items: [{ item_id: itemId(OFERTA), quantity: 3000, unit_price: 0.4 }, { item_id: itemId(APROVEITE), quantity: 1000, unit_price: 0.5 }],
   }));
@@ -223,33 +231,45 @@ test('empacotamento ligado ao pedido atualiza o andamento', async () => {
   assert.equal(o.status, 'pronto');
 });
 
-test('saída e entrega do pedido (empacotadora tem permissão de entrega)', async () => {
-  const eulir = await client().login('Eulir');
-  assert.equal(ok(await eulir.post(`/api/orders/${orderId}/ship`, { carrier: 'Moto' }), 200).status, 'saiu');
-  const d = ok(await eulir.post(`/api/orders/${orderId}/deliver`, { received_by: 'Sr. João' }), 200);
+test('entregador vê o pedido pronto na tela inicial e registra saída e entrega (sem valores)', async () => {
+  const wesley = await client().login('Wesley');
+  const home = ok(await wesley.get('/api/home'), 200);
+  const card = home.deliveries.orders.find((o) => o.id === orderId);
+  assert.equal(card.status, 'pronto');
+  assert.equal(card.total, undefined);
+  assert.equal(ok(await (await client().login('Natan')).get('/api/home'), 200).deliveries, null);
+
+  assert.equal(ok(await wesley.post(`/api/orders/${orderId}/ship`, { carrier: 'Wesley' }), 200).status, 'saiu');
+  assert.ok(ok(await wesley.get('/api/home'), 200).deliveries.orders.some((o) => o.id === orderId && o.status === 'saiu'));
+  const d = ok(await wesley.post(`/api/orders/${orderId}/deliver`, { received_by: 'Sr. João' }), 200);
   assert.equal(d.status, 'entregue');
   assert.equal(d.received_by, 'Sr. João');
-  assert.equal((await eulir.post(`/api/orders/${orderId}/deliver`, {})).status, 400);
-  const gabi = await client().login('Gabrielle');
-  assert.equal((await gabi.put(`/api/orders/${orderId}`, { notes: 'x' })).status, 400);
+  assert.equal(d.delivered_by_name, 'Wesley');
+  assert.equal((await wesley.post(`/api/orders/${orderId}/deliver`, {})).status, 400);
+  // só entrega: não cria pedido, não mexe no estoque nem vê o financeiro
+  assert.equal((await wesley.post('/api/orders', { client_name: 'X', items: [{ item_id: itemId(OFERTA), quantity: 1 }] })).status, 403);
+  assert.equal((await wesley.post('/api/ops/retirada', { item_id: itemId(PAPEL), quantity: 1 })).status, 403);
+  assert.equal((await wesley.get('/api/finance/summary')).status, 403);
+  const ana = await client().login('Ana');
+  assert.equal((await ana.put(`/api/orders/${orderId}`, { notes: 'x' })).status, 400);
 });
 
 test('pedido alterado e cancelado mantém a conta a receber em dia', async () => {
-  const gabi = await client().login('Gabrielle');
-  const o = ok(await gabi.post('/api/orders', { client_name: 'Padaria Sol', items: [{ item_id: itemId(OFERTA), quantity: 500, unit_price: 0.5 }] }));
-  const edited = ok(await gabi.put(`/api/orders/${o.id}`, { items: [{ id: o.items[0].id, item_id: itemId(OFERTA), quantity: 800, unit_price: 0.5 }] }), 200);
+  const ana = await client().login('Ana');
+  const o = ok(await ana.post('/api/orders', { client_name: 'Padaria Sol', items: [{ item_id: itemId(OFERTA), quantity: 500, unit_price: 0.5 }] }));
+  const edited = ok(await ana.put(`/api/orders/${o.id}`, { items: [{ id: o.items[0].id, item_id: itemId(OFERTA), quantity: 800, unit_price: 0.5 }] }), 200);
   assert.equal(edited.total, 400);
   assert.equal(db.prepare('SELECT amount FROM finance_entries WHERE order_id = ? AND canceled_at IS NULL').get(o.id).amount, 400);
-  assert.equal((await gabi.post(`/api/orders/${o.id}/cancel`, {})).status, 400); // precisa de motivo
-  ok(await gabi.post(`/api/orders/${o.id}/cancel`, { reason: 'cliente desistiu' }), 200);
+  assert.equal((await ana.post(`/api/orders/${o.id}/cancel`, {})).status, 400); // precisa de motivo
+  ok(await ana.post(`/api/orders/${o.id}/cancel`, { reason: 'cliente desistiu' }), 200);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM finance_entries WHERE order_id = ? AND canceled_at IS NULL').get(o.id).n, 0);
 });
 
 // ---------- financeiro ----------
 
 test('financeiro: só com permissão; despesa recorrente, pagamento e resumo do mês', async () => {
-  const gabi = await client().login('Gabrielle');
-  assert.equal((await gabi.get('/api/finance/summary')).status, 403);
+  const ana = await client().login('Ana');
+  assert.equal((await ana.get('/api/finance/summary')).status, 403);
   const m = await client().login('Márcia');
   const cats = ok(await m.get('/api/finance/categories'), 200).categories;
   const energia = cats.find((c) => c.name === 'Energia');
@@ -295,7 +315,7 @@ test('dono acompanha tudo (inclusive o financeiro), mas não lança nem altera n
     ['/api/ops/ajuste', { item_id: itemId(PAPEL), counted: 1 }],
     ['/api/orders', { client_name: 'X', items: [{ item_id: itemId(OFERTA), quantity: 1 }] }],
     ['/api/items', { name: 'Z', category: 'outro', unit: 'un' }],
-    ['/api/users', { name: 'Z', role: 'secretaria', pin: '4826' }],
+    ['/api/users', { name: 'Z', role: 'auxiliar', pin: '4826' }],
   ];
   for (const [path, body] of attempts) assert.equal((await j.post(path, body)).status, 403, path);
   assert.equal((await j.put('/api/roles', { roles: {} })).status, 403);
@@ -345,8 +365,8 @@ test('depois do prazo, só a administração estorna', async () => {
 });
 
 test('ajuste de inventário: só administração, registra a diferença', async () => {
-  const gabi = await client().login('Gabrielle');
-  assert.equal((await gabi.post('/api/ops/ajuste', { item_id: itemId(PAPEL), counted: 1 })).status, 403);
+  const ana = await client().login('Ana');
+  assert.equal((await ana.post('/api/ops/ajuste', { item_id: itemId(PAPEL), counted: 1 })).status, 403);
   const marcia = await client().login('Márcia');
   const before = qty(PAPEL);
   const r = ok(await marcia.post('/api/ops/ajuste', { item_id: itemId(PAPEL), counted: before - 200 }));
@@ -487,10 +507,10 @@ test('registro de auditoria e movimentos não podem ser alterados nem apagados',
 test('logs: só quem tem permissão vê; exportação em CSV para Excel', async () => {
   const natan = await client().login('Natan');
   assert.equal((await natan.get('/api/logs')).status, 403);
-  const gabi = await client().login('Gabrielle');
-  const r = ok(await gabi.get('/api/logs?q=Impressão'), 200);
+  const ana = await client().login('Ana');
+  const r = ok(await ana.get('/api/logs?q=Impressão'), 200);
   assert.ok(r.logs.length > 0);
-  const csv = await gabi.get('/api/logs.csv');
+  const csv = await ana.get('/api/logs.csv');
   assert.equal(csv.status, 200);
   assert.ok(csv.data.replace(/^﻿/, '').startsWith('#;Data/hora;Pessoa'));
   assert.equal(toCsv(['a', 'b'], [[1.5, 'x;y']]), '﻿a;b\r\n1,5;"x;y"\r\n');
@@ -508,8 +528,8 @@ test('troca de PIN: recusa PIN fraco e libera o acesso normal', async () => {
 
 test('não deixa o sistema sem ninguém na Administração', async () => {
   const marcia = await client().login('Márcia');
-  ok(await marcia.put(`/api/users/${userId('Joatan')}`, { role: 'secretaria' }), 200);
-  assert.equal((await marcia.put(`/api/users/${userId('Márcia')}`, { role: 'secretaria' })).status, 400);
+  ok(await marcia.put(`/api/users/${userId('Joatan')}`, { role: 'auxiliar' }), 200);
+  assert.equal((await marcia.put(`/api/users/${userId('Márcia')}`, { role: 'auxiliar' })).status, 400);
   await marcia.put(`/api/users/${userId('Joatan')}`, { role: 'dono' });
 });
 
@@ -534,6 +554,9 @@ test('banco da versão 1 é migrado sem perder dados', () => {
   old.pragma('user_version = 1');
   const now = new Date().toISOString();
   old.prepare("INSERT INTO users (name, role, pin_hash, created_at) VALUES ('Márcia', 'admin', 'x', ?)").run(now);
+  old.prepare("INSERT INTO users (name, role, pin_hash, created_at) VALUES ('Gabrielle', 'secretaria', 'x', ?)").run(now);
+  old.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ('t', 2, ?, '2999-01-01')").run(now);
+  old.prepare("INSERT INTO settings (key, value) VALUES ('role_perms', ?)").run(JSON.stringify({ secretaria: ['pedidos'], impressor: ['impressao'] }));
   const ins = old.prepare('INSERT INTO items (name, category, source, unit, quantity, min_stock, lead_time_days, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)');
   ins.run('Folha branca', 'papel', 'compra', 'folha', 1000, 7, now, now);
   ins.run('Folha amarela', 'papel', 'producao', 'folha', 500, 0, now, now);
@@ -547,6 +570,19 @@ test('banco da versão 1 é migrado sem perder dados', () => {
   assert.equal(items[0].alert_days, 7);
   assert.equal(items[1].category, 'impresso');
   assert.equal(items[1].made_from_item_id, 1);
+  // v3: Secretaria vira Auxiliar administrativo; a Gabrielle sai (histórico fica) e o Wesley entra
+  const gabi = old.prepare("SELECT * FROM users WHERE name = 'Gabrielle'").get();
+  assert.equal(gabi.role, 'auxiliar');
+  assert.equal(gabi.active, 0);
+  assert.equal(old.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?').get(gabi.id).n, 0);
+  const wesley = old.prepare("SELECT * FROM users WHERE name = 'Wesley'").get();
+  assert.equal(wesley.role, 'entregador');
+  assert.equal(wesley.must_change_pin, 1);
+  assert.ok(require('../server/auth').verifyPin(INITIAL_PIN, wesley.pin_hash));
+  assert.deepEqual(JSON.parse(old.prepare("SELECT value FROM settings WHERE key = 'role_perms'").get().value), { impressor: ['impressao'], auxiliar: ['pedidos'] });
+  assert.equal(old.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE summary LIKE 'Gabrielle saiu%' OR summary LIKE 'Wesley entrou%'").get().n, 2);
+  assert.throws(() => old.prepare("INSERT INTO users (name, role, pin_hash, created_at) VALUES ('X', 'secretaria', 'x', ?)").run(now));
+  assert.equal(old.prepare('SELECT user_id FROM operations WHERE id = 1').get().user_id, 1);
   assert.equal(old.pragma('foreign_key_check').length, 0);
   assert.equal(old.pragma('foreign_keys', { simple: true }), 1);
   old.close();
@@ -580,7 +616,7 @@ test('hospedagem: tela do sistema mostra onde ficam os dados', async () => {
   assert.ok(sys.data_dir && sys.db_path && sys.backup_dir);
   assert.match(sys.driver, /sqlite/);
   assert.equal(sys.data_at_risk, false);
-  assert.equal((await (await client().login('Gabrielle')).get('/api/system')).status, 403);
+  assert.equal((await (await client().login('Ana')).get('/api/system')).status, 403);
 });
 
 test('hospedagem: pasta dos dados fora da publicação, "~/" e porta como socket', () => {

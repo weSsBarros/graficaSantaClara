@@ -1,5 +1,9 @@
 import { html, api, icon, fmtNum, fmtQty, greeting, packText, statusBadge, runoutText, hasPerm, $ } from '../lib.js';
 import { opsList, bindUndo } from './components.js';
+import { orderCard } from './orders.js';
+
+// Permissões que geram lançamentos de estoque (os que aparecem em "Meus últimos lançamentos").
+const OP_PERMS = ['impressao', 'empacotamento', 'entrada', 'retirada', 'ajuste'];
 
 function quickActions(me, data) {
   const p = (x) => hasPerm(me, x);
@@ -42,13 +46,19 @@ export async function render(ctx) {
   const o = data.orders;
   const register = quickActions(me, data);
   const actions = register.length ? register : followLinks(me, data);
+  const showMine = data.my_operations.length > 0 || OP_PERMS.some((p) => hasPerm(me, p));
+  // Lista de entregas na tela inicial: para quem entrega (a Administração vê pelo menu Pedidos).
+  const deliveries = !me.manager && data.deliveries;
+  const onlyDelivers = deliveries && !OP_PERMS.some((p) => hasPerm(me, p));
+  // Alertas de estoque: para quem mexe no estoque e para quem só acompanha (Dono).
+  const showAlerts = data.alerts.length > 0 && (me.manager || !register.length || OP_PERMS.some((p) => hasPerm(me, p)));
 
   el.innerHTML = String(html`
     <div class="page-head">
       <div><h1>${greeting()}, ${me.user.name}</h1><p class="muted">${me.user.role_label}</p></div>
     </div>
 
-    ${data.alerts.length ? html`
+    ${showAlerts ? html`
       <div class="card" style="border-color:var(--serious)">
         <div class="card-head"><h2>${icon('alert')} Precisa de atenção</h2><a href="#/estoque?f=alerta" class="small">Ver estoque</a></div>
         <ul class="list">${data.alerts.map((i) => html`
@@ -76,6 +86,13 @@ export async function render(ctx) {
       </div>
     </div>
 
+    ${deliveries && (deliveries.orders.length || onlyDelivers) ? html`<div class="section">
+      <div class="card-head"><h2>Para entregar</h2><a class="small" href="#/pedidos?status=para_entregar">Ver todos</a></div>
+      ${deliveries.orders.length
+        ? html`<div class="items">${deliveries.orders.map(orderCard)}</div>`
+        : html`<div class="card"><p class="muted" style="margin:0">Nenhum pedido pronto para entregar agora.</p></div>`}
+    </div>` : ''}
+
     <div class="section">
       <h2>Hoje</h2>
       <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
@@ -87,7 +104,7 @@ export async function render(ctx) {
       </div>
     </div>
 
-    ${register.length ? html`<div class="section card">
+    ${register.length && showMine ? html`<div class="section card">
       <div class="card-head"><h2>Meus últimos lançamentos</h2><a class="small" href="#/historico?user_id=${me.user.id}">Ver todos</a></div>
       <div data-ops>${opsList(data.my_operations, me, { showUser: false })}</div>
     </div>` : ''}`);

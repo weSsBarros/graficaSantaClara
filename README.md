@@ -34,9 +34,10 @@ As permissões abaixo são o padrão; a administração muda em **Configuraçõe
 |---|---|---|
 | **Joatan** | Dono | **Ver tudo** — estoque, pedidos, painel, histórico, financeiro e registro de atividades — sem lançar nem alterar nada |
 | **Márcia** | Administração | Tudo, e é a única que mexe no sistema: contagem de estoque, estornos, financeiro, cadastros, permissões, avisos, backup |
-| **Gabrielle** | Secretaria | Pedidos e clientes, saída/entrega, entradas de material, retiradas, registro de atividades |
 | **Natan** | Impressor | Impressão, entradas, retiradas (tinta, chapa), manutenção da máquina |
 | **Eulir** | Empacotadora | Empacotamento, saída/entrega, retiradas |
+| **Wesley** | Entregador | Saída e entrega dos pedidos. A tela inicial dele mostra o que está pronto para entregar, com o endereço (abre no mapa) e o telefone do cliente |
+| *(ninguém hoje)* | Auxiliar administrativo | Pedidos e clientes, saída/entrega, entradas de material, retiradas, registro de atividades. Quando alguém assumir, a Márcia cadastra em Configurações → Pessoas |
 
 Todos veem estoque, pedidos, painel e histórico, e podem **desfazer o próprio lançamento em até
 30 minutos**. O financeiro (e os valores dos pedidos) só aparece para quem tem permissão — por padrão,

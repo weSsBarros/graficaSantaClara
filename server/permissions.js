@@ -4,12 +4,14 @@
 // cadastros, permissões, avisos, contagem de estoque, estornos).
 // Para as demais funções — inclusive Dono — o padrão está abaixo e a administração pode
 // mudar na tela Configurações → Pessoas e permissões (fica salvo em settings.role_perms).
+// A lista também está no banco (CHECK da tabela users): mudou aqui, crie uma migração em db.js.
 const ROLES = {
   dono: { label: 'Dono' },
   admin: { label: 'Administração' },
-  secretaria: { label: 'Secretaria' },
+  auxiliar: { label: 'Auxiliar administrativo' },
   impressor: { label: 'Impressor' },
   empacotador: { label: 'Empacotadora' },
+  entregador: { label: 'Entregador' },
 };
 
 const MANAGER_ROLES = ['admin'];
@@ -38,9 +40,10 @@ const DEFAULT_ROLE_PERMS = {
   // O dono acompanha tudo (estoque, pedidos, painel, histórico, financeiro e registro de
   // atividades), mas não lança nem altera nada.
   dono: ['ver_financeiro', 'ver_logs'],
-  secretaria: ['entrada', 'retirada', 'pedidos', 'entrega', 'ver_logs'],
+  auxiliar: ['entrada', 'retirada', 'pedidos', 'entrega', 'ver_logs'],
   impressor: ['impressao', 'entrada', 'retirada', 'manutencao'],
   empacotador: ['empacotamento', 'retirada', 'entrega'],
+  entregador: ['entrega'],
 };
 
 const ALL_PERMS = [...Object.keys(PERMS), ...MANAGER_ONLY];

@@ -1,5 +1,5 @@
 // Um pedido: itens e andamento do empacotamento, linha do tempo até a entrega, pagamento.
-import { html, api, icon, fmtNum, fmtDay, fmtDateTime, brl, hasPerm, promptDialog, confirmDialog, toast, toastError, $ } from '../lib.js';
+import { html, api, icon, fmtNum, fmtDay, fmtDateTime, brl, hasPerm, contactLinks, promptDialog, confirmDialog, toast, toastError, $ } from '../lib.js';
 import { statusChip } from './orders.js';
 import { opsList, bindUndo } from './components.js';
 
@@ -23,7 +23,7 @@ export async function render(ctx) {
   el.innerHTML = String(html`
     <div class="page-head">
       <div><span class="cat">Pedido #${o.id}</span><h1 style="margin-top:4px">${o.client_name}</h1>
-        <p class="muted">${[o.client_phone, o.client_address].filter(Boolean).join(' · ')}</p></div>
+        <p class="muted contact">${contactLinks(o.client_phone, o.client_address)}</p></div>
       ${statusChip(o)}
     </div>
 
@@ -72,6 +72,8 @@ export async function render(ctx) {
         body: o.status !== 'pronto' ? 'Atenção: o pedido ainda não está todo empacotado.' : '',
         label: 'Quem levou? (motorista, motoboy, transportadora)',
         placeholder: 'Ex.: Seu Zé da moto',
+        // quem cuida das entregas normalmente leva o pedido
+        value: me.user.role === 'entregador' ? me.user.name : '',
         confirmText: 'Confirmar saída',
       });
       if (carrier === null) return;

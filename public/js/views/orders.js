@@ -24,6 +24,7 @@ export function orderCard(o) {
       ${o.total !== undefined && o.total > 0 ? html` · ${brl(o.total)}` : ''}
       ${o.payment && o.payment.status === 'pago' ? ' · pago' : ''}
     </div>
+    ${['pronto', 'saiu'].includes(o.status) && o.client_address ? html`<div class="small addr" style="margin-top:4px">${icon('pin')} ${o.client_address}</div>` : ''}
     <ul class="order-lines">${o.items.map((l) => html`<li>
       <div class="row between small"><span>${l.item_name}</span><span class="num">${fmtNum(Math.min(l.packed, l.quantity))} / ${fmtNum(l.quantity)}</span></div>
     </li>`)}</ul>

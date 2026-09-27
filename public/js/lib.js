@@ -132,6 +132,16 @@ export function itemTags(item) {
 
 export const hasPerm = (me, p) => me.perms.includes(p);
 
+/** Telefone (toca para ligar) e endereço (abre no mapa) do cliente — para quem faz a entrega. */
+export function contactLinks(phone, address) {
+  const tel = String(phone || '').replace(/[^\d+]/g, '');
+  const parts = [
+    phone && (tel.length >= 8 ? html`<a href="tel:${tel}">${phone}</a>` : html`${phone}`),
+    address && html`<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}" target="_blank" rel="noopener">${address}</a>`,
+  ].filter(Boolean);
+  return html`${parts.map((x, i) => (i ? html` · ${x}` : x))}`;
+}
+
 const MONTH_NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 /** "2026-09" -> "setembro de 2026" (ou "set/26" no modo curto). */
 export function fmtMonth(ym, short = false) {
@@ -216,13 +226,13 @@ export async function confirmDialog({ title, body = '', confirmText = 'Confirmar
 }
 
 /** Pede um texto (ex.: motivo do estorno). Retorna o texto ou null. */
-export async function promptDialog({ title, body = '', label, placeholder = '', confirmText = 'Confirmar', danger = false, inputmode = 'text', type = 'text' }) {
+export async function promptDialog({ title, body = '', label, placeholder = '', value = '', confirmText = 'Confirmar', danger = false, inputmode = 'text', type = 'text' }) {
   const content = html`
     <form class="dialog-body" data-form>
       <h2>${title}</h2>
       ${body ? html`<p class="muted" style="margin-bottom:14px">${body}</p>` : ''}
       <label class="field"><span>${label}</span>
-        <input class="input" name="value" type="${type}" inputmode="${inputmode}" placeholder="${placeholder}" required autocomplete="off">
+        <input class="input" name="value" type="${type}" inputmode="${inputmode}" placeholder="${placeholder}" value="${value}" required autocomplete="off">
       </label>
     </form>
     <div class="dialog-actions">
@@ -307,6 +317,7 @@ const P = {
   bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c.8-4 4-6 8-6s7.2 2 8 6"/>',
+  pin: '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
 };
 const S = {
   ok: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.8 12.4l2.8 2.8 5.6-5.6" stroke="#fff"/>',

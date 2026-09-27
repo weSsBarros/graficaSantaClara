@@ -81,7 +81,7 @@ function generate() {
   seedIfEmpty(db, { log: () => {} });
   db.prepare('UPDATE users SET must_change_pin = 0').run();
   const user = (name) => db.prepare('SELECT * FROM users WHERE name = ?').get(name);
-  const [marcia, gabi, natan, eulir] = ['Márcia', 'Gabrielle', 'Natan', 'Eulir'].map(user);
+  const [marcia, natan, eulir, wesley] = ['Márcia', 'Natan', 'Eulir', 'Wesley'].map(user);
   const item = (name) => db.prepare('SELECT * FROM items WHERE name = ?').get(name);
   const qty = (it) => db.prepare('SELECT quantity FROM items WHERE id = ?').get(it.id).quantity;
   const ctx = { ip: '192.168.0.10' };
@@ -114,7 +114,7 @@ function generate() {
   const price = (p) => (p.size === '46x66' ? 0.45 : 0.85);
   const cost = { paper46: 0.18, paper96: 0.32, tinta: 55, chapa: 28 };
 
-  const clientIds = CLIENTS.map(([name, phone, address]) => orders.createClient(db, gabi, { name, phone, address }, ctx));
+  const clientIds = CLIENTS.map(([name, phone, address]) => orders.createClient(db, marcia, { name, phone, address }, ctx));
 
   // Contagem inicial.
   stock.ajuste(db, marcia, { item_id: paper['46x66'].id, counted: 45000, note: 'Contagem inicial' }, ctx);
@@ -162,11 +162,11 @@ function generate() {
     const boost = day > DAYS - 21 ? 1.3 : 1;
 
     if (!tick(at(day, 7, between(0, 20)))) break;
-    for (const u of [natan, eulir, gabi]) {
+    for (const u of [marcia, natan, eulir, wesley]) {
       audit(db, { actor: u, action: 'login', entity: 'user', entityId: u.id, ip: ctx.ip, summary: `${u.name} entrou no sistema.` });
     }
 
-    // Gabrielle registra os pedidos que chegaram (telefone/WhatsApp).
+    // Márcia registra os pedidos que chegaram (telefone/WhatsApp).
     const nOrders = saturday ? between(0, 1) : Math.round(between(1, 2) * boost);
     for (let i = 0; i < nOrders; i++) {
       if (!tick(at(day, 8, between(0, 59)))) break;
@@ -178,7 +178,7 @@ function generate() {
         used.add(p.id);
         lines.push({ item_id: p.id, quantity: between(2, 10) * 250, unit_price: price(p) });
       }
-      orders.createOrder(db, gabi, { client_id: pick(clientIds), due_date: addDays(date, between(2, 5)), items: lines }, ctx);
+      orders.createOrder(db, marcia, { client_id: pick(clientIds), due_date: addDays(date, between(2, 5)), items: lines }, ctx);
     }
 
     // Natan imprime o que os pedidos em aberto vão precisar (mais uma folga).
@@ -231,9 +231,11 @@ function generate() {
       if (dueDate > addDays(date, 1) && rand() < 0.8) continue;
       if (rand() < 0.1) continue;
       if (!tick(at(day, 14, between(0, 59)))) break;
-      orders.shipOrder(db, eulir, id, { carrier: pick(['Seu Zé (moto)', 'Kombi da gráfica', 'Cliente retirou']) }, ctx);
-      if (!tick(at(day, 16, between(0, 59)))) break;
-      orders.deliverOrder(db, gabi, id, { received_by: pick(['Gerente', 'Encarregado do depósito', 'Caixa', 'Dono']) }, ctx);
+      // Quase sempre o Wesley leva; às vezes o próprio cliente vem buscar.
+      const pickup = rand() < 0.15;
+      orders.shipOrder(db, pickup ? eulir : wesley, id, { carrier: pickup ? 'Cliente retirou' : 'Wesley' }, ctx);
+      if (!tick(at(day, pickup ? 14 : 16, between(0, 59)))) break;
+      orders.deliverOrder(db, pickup ? eulir : wesley, id, { received_by: pick(['Gerente', 'Encarregado do depósito', 'Caixa', 'Dono']) }, ctx);
       const rec = db.prepare('SELECT id FROM finance_entries WHERE order_id = ? AND canceled_at IS NULL AND paid_at IS NULL').get(id);
       if (rec && rand() < 0.92) toPay.push({ date: addDays(date, between(0, 6)), id: rec.id });
     }

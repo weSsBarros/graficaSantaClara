@@ -10,9 +10,9 @@ const INITIAL_PIN = '2580';
 const USERS = [
   { name: 'Joatan', role: 'dono' },
   { name: 'Márcia', role: 'admin' },
-  { name: 'Gabrielle', role: 'secretaria' },
   { name: 'Natan', role: 'impressor' },
   { name: 'Eulir', role: 'empacotador' },
+  { name: 'Wesley', role: 'entregador' },
 ];
 
 const MODELS = ['Oferta', 'Aproveite', 'Splash'];

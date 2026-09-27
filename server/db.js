@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { openDatabase } = require('./sqlite');
 
-// Cada item do array é uma migração. Nunca altere uma migração já publicada:
-// acrescente uma nova no final. A versão fica em PRAGMA user_version.
+// Cada item do array é uma migração (SQL, ou uma função quando precisa de código). Nunca altere
+// uma migração já publicada: acrescente uma nova no final. A versão fica em PRAGMA user_version.
 const MIGRATIONS = [
   `
   CREATE TABLE users (
@@ -287,18 +287,76 @@ const MIGRATIONS = [
   CREATE INDEX finance_order ON finance_entries(order_id);
   CREATE INDEX finance_operation ON finance_entries(operation_id);
   `,
+
+  // ---------- v3: equipe (setembro/2026) ----------
+  // "Secretaria" passa a se chamar "Auxiliar administrativo" e entra a função "Entregador".
+  // Em instalações que já existiam: a Gabrielle sai da equipe e o Wesley (entregas) entra.
+  (db) => {
+    db.exec(`
+      CREATE TABLE users_new (
+        id              INTEGER PRIMARY KEY,
+        name            TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        role            TEXT NOT NULL CHECK (role IN ('dono','admin','auxiliar','impressor','empacotador','entregador')),
+        pin_hash        TEXT NOT NULL,
+        must_change_pin INTEGER NOT NULL DEFAULT 1,
+        active          INTEGER NOT NULL DEFAULT 1,
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until    TEXT,
+        created_at      TEXT NOT NULL
+      );
+      INSERT INTO users_new (id, name, role, pin_hash, must_change_pin, active, failed_attempts, locked_until, created_at)
+        SELECT id, name, CASE role WHEN 'secretaria' THEN 'auxiliar' ELSE role END,
+               pin_hash, must_change_pin, active, failed_attempts, locked_until, created_at
+          FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+    `);
+    const perms = getSetting(db, 'role_perms', null);
+    if (perms && perms.secretaria) {
+      perms.auxiliar = perms.secretaria;
+      delete perms.secretaria;
+      setSetting(db, 'role_perms', perms);
+    }
+
+    // Banco novo (ainda sem ninguém): o cadastro inicial já cria a equipe atual.
+    if (!db.prepare('SELECT 1 FROM users LIMIT 1').get()) return;
+    const { hashPin } = require('./auth');
+    const { audit } = require('./audit');
+    const { nowIso } = require('./util');
+    const { INITIAL_PIN } = require('./seed');
+    const gabi = db.prepare("SELECT id FROM users WHERE name = 'Gabrielle' AND active = 1").get();
+    if (gabi) {
+      db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(gabi.id);
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(gabi.id);
+      audit(db, {
+        action: 'pessoa_alterada', entity: 'user', entityId: gabi.id,
+        summary: 'Gabrielle saiu da equipe: acesso desativado (os lançamentos dela continuam no histórico).',
+      });
+    }
+    if (!db.prepare("SELECT 1 FROM users WHERE name = 'Wesley'").get()) {
+      const id = db
+        .prepare("INSERT INTO users (name, role, pin_hash, must_change_pin, created_at) VALUES ('Wesley', 'entregador', ?, 1, ?)")
+        .run(hashPin(INITIAL_PIN), nowIso()).lastInsertRowid;
+      audit(db, {
+        action: 'pessoa_criada', entity: 'user', entityId: Number(id),
+        summary: `Wesley entrou na equipe como Entregador (PIN inicial ${INITIAL_PIN}, troca no primeiro acesso).`,
+      });
+    }
+  },
 ];
 
 function migrate(db) {
   const current = db.pragma('user_version', { simple: true });
   if (current >= MIGRATIONS.length) return;
-  // Recriar tabelas (como na v2) exige as chaves estrangeiras desligadas durante a migração;
+  // Recriar tabelas (como na v2 e na v3) exige as chaves estrangeiras desligadas durante a migração;
   // no fim de cada etapa conferimos se nenhuma referência ficou quebrada.
   db.pragma('foreign_keys = OFF');
   try {
     for (let v = current; v < MIGRATIONS.length; v++) {
       db.transaction(() => {
-        db.exec(MIGRATIONS[v]);
+        const step = MIGRATIONS[v];
+        if (typeof step === 'function') step(db);
+        else db.exec(step);
         const broken = db.pragma('foreign_key_check');
         if (broken.length) throw new Error(`Migração ${v + 1}: referências quebradas em ${broken[0].table}`);
         db.pragma(`user_version = ${v + 1}`);
