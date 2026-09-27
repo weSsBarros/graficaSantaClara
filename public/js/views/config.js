@@ -55,8 +55,34 @@ async function itemsTab(box, ctx) {
         <button class="btn" type="submit">${icon('plus')} Adicionar cor</button>
       </form>
     </div>
+    <form class="card" data-alerts style="margin-bottom:16px">
+      <div class="card-head"><h2>Avisos de estoque por item</h2>
+        <p class="small muted">Cada produto tem a sua saída: ajuste aqui quando avisar. "Dias" usa a saída média de cada item
+          (quem vende mais avisa antes); "quantidade" é um número fixo. Use os dois ou só um.</p></div>
+      <div class="table-wrap"><table class="table alerts-table">
+        <thead><tr><th>Item</th><th class="r">Sai por dia</th><th class="r">Dura</th><th>Avisar com menos de</th><th>ou abaixo de</th><th>Enviar</th><th>Sugestão</th></tr></thead>
+        <tbody>${items.filter((i) => i.active).map((i) => {
+          const f = i.forecast;
+          const h = f.settings_hint;
+          return html`<tr data-alert-row="${i.id}">
+            <td>${colorDot(i)}${i.name}</td>
+            <td class="r num">${f.avg_daily > 0 ? html`${fmtNum(f.avg_daily, f.avg_daily >= 100 ? 0 : 1)} <span class="xs muted">${plural(i.unit, f.avg_daily)}</span>` : html`<span class="muted">—</span>`}</td>
+            <td class="r num">${f.days_left === null ? html`<span class="muted">—</span>` : `${fmtNum(f.days_left, 0)} d`}</td>
+            <td><input class="input" name="alert_days" value="${i.alert_days}" inputmode="numeric" aria-label="Dias para avisar: ${i.name}"> <span class="xs muted">dias</span></td>
+            <td><input class="input" name="min_stock" value="${i.min_stock}" inputmode="decimal" aria-label="Quantidade mínima: ${i.name}"> <span class="xs muted">${plural(i.unit, 2)}</span></td>
+            <td><input type="checkbox" name="notify" ${i.notify ? 'checked' : ''} aria-label="Enviar aviso: ${i.name}"></td>
+            <td>${h ? html`<button type="button" class="btn ghost sm" data-hint="${i.id}" data-days="${h.alert_days}" data-min="${h.min_stock}"
+              title="Pela saída das últimas semanas">${h.alert_days} d / ${fmtNum(h.min_stock)}</button>` : html`<span class="xs muted">após 1 semana de uso</span>`}</td>
+          </tr>`;
+        })}</tbody>
+      </table></div>
+      <div class="row wrap" style="margin-top:12px">
+        <button class="btn" type="submit">Salvar avisos</button>
+        ${items.some((i) => i.active && i.forecast.settings_hint) ? html`<button type="button" class="btn secondary" data-hint-all>Usar todas as sugestões</button>` : ''}
+      </div>
+    </form>
     <div class="row between wrap" style="margin-bottom:12px">
-      <p class="muted small">Papéis, cartazes, tintas, chapas e outros materiais. Clique em editar para ajustar detalhes e alertas.</p>
+      <p class="muted small">Papel, produtos, tintas, chapas e outros materiais. Clique em editar para ajustar os detalhes.</p>
       <a class="btn" href="#/config/itens?edit=novo">${icon('plus')} Novo item</a>
     </div>
     <div class="card"><div class="table-wrap"><table class="table">
@@ -64,11 +90,42 @@ async function itemsTab(box, ctx) {
       <tbody>${items.map((i) => html`<tr>
         <td>${colorDot(i)}<a href="#/item/${i.id}">${i.name}</a>${i.barcode ? html` <span class="xs muted" title="Tem código de barras">${icon('scan')}</span>` : ''}</td>
         <td>${CATEGORY_LABELS[i.category] || i.category}</td>
-        <td>${i.unit}${i.pack_unit ? ` · ${i.pack_unit} de ${fmtNum(i.pack_size)}` : ''}</td>
+        <td>${i.unit}${i.pack_unit ? ` · ${i.pack_unit} de ${fmtNum(i.pack_size)}` : ''}${i.source === 'producao' ? ` · rende ${fmtNum(i.yield_per_sheet)} por folha` : ''}</td>
         <td>${alertText(i)}${i.notify ? '' : html` <span class="tag">sem envio</span>`}</td>
         <td>${i.active ? 'Ativo' : html`<span class="tag">Desativado</span>`}</td>
         <td><a class="btn ghost sm" href="#/config/itens?edit=${i.id}">${icon('edit')} Editar</a></td></tr>`)}</tbody>
     </table></div></div>`);
+
+  // Avisos por item: salva só as linhas que mudaram.
+  const alertsForm = $('[data-alerts]', box);
+  const fillHint = (b) => {
+    const row = b.closest('[data-alert-row]');
+    row.querySelector('[name=alert_days]').value = b.dataset.days;
+    row.querySelector('[name=min_stock]').value = b.dataset.min;
+  };
+  $$('[data-hint]', alertsForm).forEach((b) => { b.onclick = () => fillHint(b); });
+  const hintAll = $('[data-hint-all]', alertsForm);
+  if (hintAll) hintAll.onclick = () => { $$('[data-hint]', alertsForm).forEach(fillHint); toast('Sugestões preenchidas. Clique em Salvar avisos.'); };
+  alertsForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const changed = [];
+    for (const row of $$('[data-alert-row]', alertsForm)) {
+      const item = items.find((i) => String(i.id) === row.dataset.alertRow);
+      const body = {
+        alert_days: num(row.querySelector('[name=alert_days]').value) ?? 0,
+        min_stock: num(row.querySelector('[name=min_stock]').value) ?? 0,
+        notify: row.querySelector('[name=notify]').checked,
+      };
+      if (!(body.alert_days >= 0) || !(body.min_stock >= 0)) return toast(`Confira os números de ${item.name}.`, { error: true });
+      if (body.alert_days !== item.alert_days || body.min_stock !== item.min_stock || body.notify !== !!item.notify) changed.push([item, body]);
+    }
+    if (!changed.length) return toast('Nada mudou.');
+    try {
+      for (const [item, body] of changed) await api(`/items/${item.id}`, { method: 'PUT', body });
+      toast(`Avisos salvos (${changed.length} ${changed.length === 1 ? 'item' : 'itens'}).`);
+      itemsTab(box, ctx);
+    } catch (err) { toastError(err); }
+  };
 
   // Cadastro rápido de uma cor de tinta, com os mesmos padrões de alerta da tinta que já existe.
   const inkForm = $('[data-ink]', box);
@@ -106,7 +163,7 @@ function itemForm(box, ctx, item, items, sugg) {
       <h2 style="margin-bottom:16px">${isNew ? 'Novo item' : html`Editar: ${colorDot(v)}${item.name}`}</h2>
       <fieldset class="group"><legend>Identificação</legend>
         <div class="form-grid cols-2">
-          <label class="field full"><span>Nome</span><input class="input" name="name" value="${v.name || ''}" maxlength="80" required placeholder="Ex.: Oferta 46x66, Tinta vermelha"></label>
+          <label class="field full"><span>Nome</span><input class="input" name="name" value="${v.name || ''}" maxlength="80" required placeholder="Ex.: Oferta, Amarelo pequeno 46x64, Tinta vermelha"></label>
           <label class="field"><span>Categoria</span><select class="input" name="category" data-cat>
             ${Object.entries(CATEGORY_LABELS).map(([k, l]) => html`<option value="${k}" ${v.category === k ? 'selected' : ''}>${l}</option>`)}</select></label>
           <label class="field"><span>Origem</span><select class="input" name="source" data-source>
@@ -116,13 +173,16 @@ function itemForm(box, ctx, item, items, sugg) {
             <select class="input" name="made_from_item_id"><option value="">—</option>
               ${papers.map((p) => html`<option value="${p.id}" ${p.id === v.made_from_item_id ? 'selected' : ''}>${p.name}</option>`)}</select>
             <span class="hint">Na impressão, o sistema desconta este papel automaticamente.</span></label>
+          <label class="field" data-yield><span>Quanto rende cada folha desse papel</span>
+            <input class="input" name="yield_per_sheet" value="${v.yield_per_sheet ?? 1}" inputmode="decimal">
+            <span class="hint">Ex.: Amarelo grande 1; Amarelo pequeno, Oferta e Aproveite 2; Splash 8.</span></label>
         </div>
       </fieldset>
 
       <fieldset class="group"><legend>Detalhes</legend>
         <div class="form-grid cols-2">
           <label class="field" data-model><span>Modelo / linha</span><input class="input" name="model" value="${v.model || ''}" list="dl-models" maxlength="60" placeholder="Ex.: Oferta, Aproveite, Splash"></label>
-          <label class="field" data-size><span>Formato</span><input class="input" name="size" value="${v.size || ''}" list="dl-sizes" maxlength="30" placeholder="Ex.: 46x66"></label>
+          <label class="field" data-size><span>Formato</span><input class="input" name="size" value="${v.size || ''}" list="dl-sizes" maxlength="30" placeholder="Ex.: 46x64"></label>
           <div class="field" data-color><span class="label">Cor</span>
             <div class="input-group"><input class="input" name="color_name" value="${v.color_name || ''}" maxlength="40" placeholder="Ex.: Amarelo">
               <input type="color" name="color_hex" value="${v.color_hex || '#f5c400'}" style="width:56px;min-height:48px;border:1px solid var(--axis);border-radius:12px;padding:4px;background:var(--surface)" aria-label="Escolher a cor"></div></div>
@@ -141,11 +201,14 @@ function itemForm(box, ctx, item, items, sugg) {
           <label class="field"><span>Unidade de controle</span><input class="input" name="unit" value="${v.unit}" list="dl-units" maxlength="20" required>
             <span class="hint">No singular: folha, litro, chapa, kg...</span></label>
           <div class="form-grid cols-2" style="gap:0 10px">
-            <label class="field"><span>Embalagem <span class="muted">(opcional)</span></span><input class="input" name="pack_unit" value="${v.pack_unit || ''}" list="dl-packs" maxlength="20" placeholder="resma"></label>
-            <label class="field"><span>Quantas vêm nela</span><input class="input" name="pack_size" value="${v.pack_size ?? ''}" inputmode="decimal" placeholder="500"></label>
+            <label class="field"><span>Embalagem <span class="muted">(opcional)</span></span><input class="input" name="pack_unit" value="${v.pack_unit || ''}" list="dl-packs" maxlength="20" placeholder="pacote"></label>
+            <label class="field"><span>Quantas vêm nela</span><input class="input" name="pack_size" value="${v.pack_size ?? ''}" inputmode="decimal" placeholder="150"></label>
           </div>
           ${isNew ? html`<label class="field"><span>Estoque atual <span class="muted">(opcional)</span></span><input class="input" name="initial_quantity" inputmode="decimal" placeholder="0">
             <span class="hint">Quantidade que existe hoje, na unidade de controle.</span></label>` : ''}
+          <label class="field"><span>Pacotes usuais no empacotamento <span class="muted">(opcional)</span></span>
+            <input class="input" name="package_sizes" value="${v.package_sizes ? v.package_sizes.split(',').join(', ') : ''}" maxlength="60" placeholder="150, 200">
+            <span class="hint">Aparecem como botões na hora de empacotar.</span></label>
           <label class="field" data-lead><span>Prazo do fornecedor para entregar (dias)</span><input class="input" name="lead_time_days" value="${v.lead_time_days}" inputmode="numeric"></label>
         </div>
       </fieldset>
@@ -176,7 +239,7 @@ function itemForm(box, ctx, item, items, sugg) {
     <datalist id="dl-units">${['folha', 'litro', 'kg', 'chapa', 'unidade', 'cartucho', 'lata', 'rolo', 'pacote'].map((u) => html`<option value="${u}">`)}</datalist>
     <datalist id="dl-packs">${['resma', 'caixa', 'pacote', 'fardo', 'galão', 'lata'].map((u) => html`<option value="${u}">`)}</datalist>
     <datalist id="dl-models">${uniq(['Oferta', 'Aproveite', 'Splash', ...sugg.models]).map((u) => html`<option value="${u}">`)}</datalist>
-    <datalist id="dl-sizes">${uniq(['46x66', '96x64', ...sugg.sizes]).map((u) => html`<option value="${u}">`)}</datalist>
+    <datalist id="dl-sizes">${uniq(['94x66', '46x64', ...sugg.sizes]).map((u) => html`<option value="${u}">`)}</datalist>
     <datalist id="dl-brands">${sugg.brands.map((u) => html`<option value="${u}">`)}</datalist>`);
 
   const form = $('[data-form]', box);
@@ -184,6 +247,7 @@ function itemForm(box, ctx, item, items, sugg) {
     const cat = form.elements.category.value;
     const src = form.elements.source.value;
     $('[data-made]', box).classList.toggle('hidden', src !== 'producao');
+    $('[data-yield]', box).classList.toggle('hidden', src !== 'producao');
     $('[data-lead]', box).classList.toggle('hidden', src !== 'compra');
     $('[data-color]', box).classList.toggle('hidden', cat !== 'tinta');
     $('[data-grammage]', box).classList.toggle('hidden', !['papel', 'impresso'].includes(cat));
@@ -223,6 +287,8 @@ function itemForm(box, ctx, item, items, sugg) {
       color_name: isTinta ? d.color_name || null : null,
       color_hex: isTinta && d.color_name ? d.color_hex : null,
       made_from_item_id: d.source === 'producao' && d.made_from_item_id ? Number(d.made_from_item_id) : null,
+      yield_per_sheet: d.source === 'producao' ? num(d.yield_per_sheet) ?? 1 : 1,
+      package_sizes: d.package_sizes || null,
       initial_quantity: num(d.initial_quantity),
       notify: form.elements.notify.checked,
       active: isNew ? true : form.elements.active.checked,
@@ -451,6 +517,13 @@ async function notifyTab(box, ctx) {
 
 // ---------- sistema ----------
 
+const SETTING_GROUPS = { pedidos: 'Regras dos pedidos', previsao: 'Previsões' };
+const settingHint = (x) => {
+  if (x.unit === 'dias') return `Entre ${x.min} e ${x.max} dias.`;
+  if (x.unit === 'reais') return 'Vale para clientes com cidade diferente de São Luís. 0 = sem valor mínimo.';
+  return '0 = sem mínimo. A Administração pode liberar uma exceção na hora de criar o pedido.';
+};
+
 function fmtBytes(n) {
   if (n === null || n === undefined) return '—';
   if (n < 1024 * 1024) return `${fmtNum(n / 1024, 0)} KB`;
@@ -465,13 +538,13 @@ async function systemTab(box) {
       <p class="small muted" style="margin:6px 0 0">Nesta hospedagem essa pasta é apagada a cada nova publicação.
         Defina a variável <code>DATA_DIR</code> (por exemplo <code>~/grafica-santa-clara-dados</code>) e publique de novo.</p></div>` : ''}
     <div class="grid-2">
-      <form class="card" data-form>
-        <h2 style="margin-bottom:14px">Previsões</h2>
-        ${Object.entries(s.settings).map(([k, x]) => html`<label class="field"><span>${x.label}</span>
-          <input class="input" name="${k}" value="${x.value}" inputmode="numeric">
-          <span class="hint">Entre ${x.min} e ${x.max} dias.</span></label>`)}
+      ${Object.entries(SETTING_GROUPS).map(([g, title]) => html`<form class="card" data-settings>
+        <h2 style="margin-bottom:14px">${title}</h2>
+        ${Object.entries(s.settings).filter(([, x]) => x.group === g).map(([k, x]) => html`<label class="field"><span>${x.label}</span>
+          <input class="input" name="${k}" value="${x.decimal ? String(x.value).replace('.', ',') : x.value}" inputmode="${x.decimal ? 'decimal' : 'numeric'}">
+          <span class="hint">${settingHint(x)}</span></label>`)}
         <button class="btn" type="submit">Salvar</button>
-      </form>
+      </form>`)}
       <div class="card">
         <h2 style="margin-bottom:10px">Cópia de segurança</h2>
         <p class="muted small">O sistema guarda automaticamente uma cópia por dia (últimos 30 dias) no servidor.
@@ -491,12 +564,57 @@ async function systemTab(box) {
           <dt>Ligado desde</dt><dd>${fmtDateTime(sys.started_at)}</dd>
         </dl>
       </div>
+      <div class="card">
+        <h2 style="margin-bottom:10px">Dados de teste</h2>
+        ${sys.demo ? html`<div class="notice warn" style="margin:0 0 12px">${icon('alert')}<span>O sistema está com <b>dados fictícios</b>
+          (gerados em ${fmtDateTime(sys.demo.at)}). Antes de começar a usar de verdade, zere o sistema.</span></div>` : ''}
+        ${sys.fresh ? html`<p class="small muted">Gera uns 3 meses de uso inventado — compras de papel, impressões, empacotamentos, pedidos
+          com nota fiscal (inclusive de fora de São Luís), entregas, contas e estornos — para testar todas as telas. Depois é só zerar.</p>
+          <button class="btn secondary" style="margin-top:12px" data-demo>${icon('plus')} Gerar dados fictícios</button>`
+          : html`<p class="small muted">Zerar apaga estoque, pedidos, clientes, financeiro e histórico, e volta os itens ao cadastro inicial.
+          Continuam: pessoas e PINs, permissões, regras dos pedidos e avisos. Antes, o sistema guarda uma cópia de segurança.</p>
+          <button class="btn danger" style="margin-top:12px" data-reset>${icon('trash')} Zerar o sistema</button>`}
+      </div>
     </div>`);
-  const form = $('[data-form]', box);
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const body = {};
-    for (const [k, v] of Object.entries(formData(form))) body[k] = Number(v);
-    try { await api('/settings', { method: 'PUT', body }); toast('Configurações salvas.'); } catch (err) { toastError(err); }
-  };
+  const demoBtn = $('[data-demo]', box);
+  if (demoBtn) {
+    demoBtn.onclick = async () => {
+      if (!(await confirmDialog({
+        title: 'Gerar dados fictícios?',
+        body: 'O sistema vai ser preenchido com uns 3 meses de uso inventado, para testar. Todo mundo vê uma faixa avisando que os dados são de teste. Depois, zere o sistema para começar de verdade.',
+        confirmText: 'Gerar dados',
+      }))) return;
+      demoBtn.disabled = true;
+      try {
+        await api('/system/demo', { method: 'POST', body: {} });
+        toast('Dados fictícios gerados.');
+        setTimeout(() => location.reload(), 600);
+      } catch (err) { toastError(err); demoBtn.disabled = false; }
+    };
+  }
+  const resetBtn = $('[data-reset]', box);
+  if (resetBtn) {
+    resetBtn.onclick = async () => {
+      const typed = await promptDialog({
+        title: 'Zerar o sistema?',
+        body: 'Isso apaga estoque, pedidos, clientes, financeiro e histórico. Pessoas, PINs, permissões e avisos continuam. Uma cópia de segurança é guardada antes.',
+        label: 'Para confirmar, digite ZERAR', placeholder: 'ZERAR', confirmText: 'Zerar o sistema', danger: true,
+      });
+      if (typed === null) return;
+      try {
+        const r = await api('/system/reset', { method: 'POST', body: { confirm: typed } });
+        toast(`Sistema zerado. Cópia de segurança: ${r.backup}`, { ms: 6000 });
+        setTimeout(() => location.reload(), 1200);
+      } catch (err) { toastError(err); }
+    };
+  }
+
+  $$('[data-settings]', box).forEach((form) => {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const body = {};
+      for (const [k, v] of Object.entries(formData(form))) body[k] = parseNum(v);
+      try { await api('/settings', { method: 'PUT', body }); toast('Configurações salvas.'); } catch (err) { toastError(err); }
+    };
+  });
 }

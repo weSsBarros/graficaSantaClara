@@ -5,14 +5,15 @@
 //   (ou cancelado). O empacotamento da Eulir alimenta a quantidade empacotada de cada item.
 
 const { audit, diff } = require('../audit');
-const { HttpError, nowIso, localDate, num, str, round3, fmtNum, plural } = require('../util');
-const { can } = require('../permissions');
+const { HttpError, nowIso, localDate, num, str, oneOf, round3, fmtNum, plural } = require('../util');
+const { can, isManager } = require('../permissions');
+const { getSetting } = require('../db');
 const finance = require('./finance');
 
 const STATUS_LABELS = {
   aberto: 'Aberto',
   parcial: 'Empacotando',
-  pronto: 'Pronto para entrega',
+  pronto: 'Separado, aguardando o entregador',
   saiu: 'Saiu para entrega',
   entregue: 'Entregue',
   cancelado: 'Cancelado',
@@ -21,6 +22,46 @@ const OPEN_STATUSES = ['aberto', 'parcial', 'pronto', 'saiu'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const canSeePrices = (user) => can(user, 'pedidos') || can(user, 'ver_financeiro');
+
+// Por onde o pedido chegou.
+const CHANNELS = ['WhatsApp', 'E-mail', 'Telefone', 'Pessoalmente', 'Outro'];
+
+// ---------- regras dos pedidos (a administração ajusta em Configurações → Sistema) ----------
+
+const HOME_CITY = 'São Luís';
+const normCity = (c) => String(c || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/\s*[-/,]\s*ma$/, '').trim();
+/** Cliente de fora de São Luís? (cidade em branco = São Luís) */
+const isOutside = (city) => !!normCity(city) && normCity(city) !== normCity(HOME_CITY);
+
+function orderRules(db) {
+  return {
+    min_units: Number(getSetting(db, 'min_order_units', 300)) || 0,
+    min_value_outside: Number(getSetting(db, 'min_order_value_outside', 0)) || 0,
+    home_city: HOME_CITY,
+  };
+}
+
+/**
+ * Confere pedido mínimo (unidades) e valor mínimo para fora de São Luís. Só a Administração pode
+ * abrir exceção (enviando ignore_minimum); a exceção fica escrita no registro do pedido.
+ */
+function checkRules(db, user, clientId, lines, body) {
+  const rules = orderRules(db);
+  const units = round3(lines.reduce((a, l) => a + l.quantity, 0));
+  const total = round3(lines.reduce((a, l) => a + l.quantity * l.unit_price, 0));
+  const city = db.prepare('SELECT city FROM clients WHERE id = ?').get(clientId).city;
+  const problems = [];
+  if (rules.min_units > 0 && units < rules.min_units) {
+    problems.push(`O pedido mínimo é de ${fmtNum(rules.min_units)} unidades (este tem ${fmtNum(units)}).`);
+  }
+  if (rules.min_value_outside > 0 && isOutside(city) && total < rules.min_value_outside) {
+    problems.push(`Para fora de ${HOME_CITY} (${city}) o valor mínimo é ${finance.brl(rules.min_value_outside)} (este tem ${finance.brl(total)}).`);
+  }
+  if (!problems.length) return null;
+  if (body.ignore_minimum && isManager(user)) return problems.join(' ');
+  throw new HttpError(400, problems.join(' '), { code: 'abaixo_do_minimo', pode_liberar: isManager(user) });
+}
 
 function dateOrNull(v, field) {
   if (v === undefined || v === null || v === '') return null;
@@ -33,6 +74,7 @@ function dateOrNull(v, field) {
 function readClient(body) {
   return {
     name: str(body.name, 'o nome do cliente', { required: true, max: 120 }),
+    city: str(body.city, 'cidade', { max: 60 }),
     phone: str(body.phone, 'telefone', { max: 40 }),
     email: str(body.email, 'e-mail', { max: 120 }),
     address: str(body.address, 'endereço', { max: 300 }),
@@ -47,8 +89,8 @@ function createClient(db, user, body, ctx) {
   try {
     const id = Number(
       db.prepare(
-        `INSERT INTO clients (name, phone, email, address, document, notes, created_at, updated_at)
-         VALUES (@name, @phone, @email, @address, @document, @notes, @now, @now)`
+        `INSERT INTO clients (name, city, phone, email, address, document, notes, created_at, updated_at)
+         VALUES (@name, @city, @phone, @email, @address, @document, @notes, @now, @now)`
       ).run({ ...c, now }).lastInsertRowid
     );
     audit(db, { actor: user, action: 'cliente_criado', entity: 'client', entityId: id, ip: ctx && ctx.ip, summary: `Cadastrou o cliente ${c.name}.` });
@@ -68,7 +110,7 @@ function updateClient(db, user, id, body, ctx) {
   if (!Object.keys(changes).length) return;
   try {
     db.prepare(
-      `UPDATE clients SET name=@name, phone=@phone, email=@email, address=@address, document=@document, notes=@notes,
+      `UPDATE clients SET name=@name, city=@city, phone=@phone, email=@email, address=@address, document=@document, notes=@notes,
               active=@active, updated_at=@now WHERE id=@id`
     ).run({ ...c, active, id, now: nowIso() });
   } catch (err) {
@@ -101,7 +143,7 @@ function resolveClient(db, user, body, ctx) {
   const name = str(body.client_name, 'o cliente', { required: true, max: 120 });
   const existing = db.prepare('SELECT id FROM clients WHERE name = ?').get(name);
   if (existing) return existing.id;
-  return createClient(db, user, { name, phone: body.client_phone }, ctx);
+  return createClient(db, user, { name, phone: body.client_phone, city: body.client_city }, ctx);
 }
 
 // ---------- pedidos ----------
@@ -189,25 +231,34 @@ function saveLines(db, orderId, lines) {
 
 const linesText = (lines) => lines.map((l) => `${fmtNum(l.quantity)} ${plural(l.item.unit, l.quantity)} de ${l.item.name}`).join(', ');
 
+const readChannel = (v) => (v === undefined || v === null || v === '' ? null : oneOf(v, 'por onde chegou', CHANNELS));
+const readInvoice = (v) => str(v, 'número da nota fiscal', { max: 40 });
+
 function createOrder(db, user, body, ctx) {
   const dueDate = dateOrNull(body.due_date, 'data de entrega');
   const notes = str(body.notes, 'observações', { max: 1000 });
+  const channel = readChannel(body.channel);
+  const invoice = readInvoice(body.invoice_number);
   const id = db.transaction(() => {
     const clientId = resolveClient(db, user, body, ctx);
     const lines = readLines(db, user, body.items);
+    const exception = checkRules(db, user, clientId, lines, body);
     const now = nowIso();
     const orderId = Number(
-      db.prepare('INSERT INTO orders (client_id, due_date, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(clientId, dueDate, notes, user.id, now, now).lastInsertRowid
+      db.prepare(
+        `INSERT INTO orders (client_id, due_date, notes, channel, invoice_number, invoice_at, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(clientId, dueDate, notes, channel, invoice, invoice ? now : null, user.id, now, now).lastInsertRowid
     );
     const total = saveLines(db, orderId, lines);
     syncReceivable(db, user, orderId, ctx);
     const client = db.prepare('SELECT name FROM clients WHERE id = ?').get(clientId).name;
     audit(db, {
       actor: user, action: 'pedido_criado', entity: 'order', entityId: orderId, ip: ctx && ctx.ip,
-      summary: `Pedido #${orderId} de ${client}: ${linesText(lines)}` +
-        (dueDate ? ` — entrega ${dueDate.split('-').reverse().join('/')}` : '') + (total ? ` — ${finance.brl(total)}` : ''),
-      details: { client_id: clientId, due_date: dueDate, total },
+      summary: `Pedido #${orderId} de ${client}${channel ? ` (${channel})` : ''}: ${linesText(lines)}` +
+        (dueDate ? ` — entrega ${dueDate.split('-').reverse().join('/')}` : '') + (total ? ` — ${finance.brl(total)}` : '') +
+        (invoice ? ` — NF ${invoice}` : '') + (exception ? ` — EXCEÇÃO liberada pela administração: ${exception}` : ''),
+      details: { client_id: clientId, due_date: dueDate, total, channel, invoice_number: invoice, exception },
     });
     return orderId;
   })();
@@ -224,17 +275,42 @@ function updateOrder(db, user, id, body, ctx) {
       client_id: body.client_id || body.client_name ? resolveClient(db, user, body, ctx) : before.client_id,
       due_date: body.due_date === undefined ? before.due_date : dateOrNull(body.due_date, 'data de entrega'),
       notes: body.notes === undefined ? before.notes : str(body.notes, 'observações', { max: 1000 }),
+      channel: body.channel === undefined ? before.channel : readChannel(body.channel),
+      invoice_number: body.invoice_number === undefined ? before.invoice_number : readInvoice(body.invoice_number),
     };
-    db.prepare('UPDATE orders SET client_id = ?, due_date = ?, notes = ?, updated_at = ? WHERE id = ?')
-      .run(data.client_id, data.due_date, data.notes, nowIso(), id);
+    const lines = body.items ? readLines(db, user, body.items, beforeLines) : null;
+    // As regras valem quando muda o que foi pedido ou o cliente (pedidos antigos continuam como estão).
+    const exception = lines || data.client_id !== before.client_id
+      ? checkRules(db, user, data.client_id, lines || beforeLines, body)
+      : null;
+    const invoiceAt = data.invoice_number && data.invoice_number !== before.invoice_number ? nowIso() : data.invoice_number ? before.invoice_at : null;
+    db.prepare('UPDATE orders SET client_id = ?, due_date = ?, notes = ?, channel = ?, invoice_number = ?, invoice_at = ?, updated_at = ? WHERE id = ?')
+      .run(data.client_id, data.due_date, data.notes, data.channel, data.invoice_number, invoiceAt, nowIso(), id);
     let total = before.total;
-    if (body.items) total = saveLines(db, id, readLines(db, user, body.items, beforeLines));
+    if (lines) total = saveLines(db, id, lines);
     recomputeStatus(db, id);
     syncReceivable(db, user, id, ctx);
     audit(db, {
       actor: user, action: 'pedido_alterado', entity: 'order', entityId: id, ip: ctx && ctx.ip,
-      summary: `Alterou o pedido #${id}.` + (total !== before.total ? ` Valor: ${finance.brl(before.total)} → ${finance.brl(total)}.` : ''),
-      details: { ...diff(before, data, Object.keys(data)), ...(body.items ? { items: body.items } : {}) },
+      summary: `Alterou o pedido #${id}.` + (total !== before.total ? ` Valor: ${finance.brl(before.total)} → ${finance.brl(total)}.` : '') +
+        (exception ? ` EXCEÇÃO liberada pela administração: ${exception}` : ''),
+      details: { ...diff(before, data, Object.keys(data)), ...(body.items ? { items: body.items } : {}), exception },
+    });
+  })();
+  return getOrder(db, user, id);
+}
+
+/** Nota fiscal emitida (pode ser registrada até depois da entrega). */
+function setInvoice(db, user, id, body, ctx) {
+  const o = db.prepare('SELECT o.*, c.name AS client_name FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = ?').get(id);
+  if (!o) throw new HttpError(404, 'Pedido não encontrado.');
+  if (o.status === 'cancelado') throw new HttpError(400, 'Pedido cancelado.');
+  const invoice = str(body.invoice_number, 'o número da nota fiscal', { required: true, max: 40 });
+  db.transaction(() => {
+    db.prepare('UPDATE orders SET invoice_number = ?, invoice_at = ?, updated_at = ? WHERE id = ?').run(invoice, nowIso(), nowIso(), id);
+    audit(db, {
+      actor: user, action: 'pedido_alterado', entity: 'order', entityId: id, ip: ctx && ctx.ip,
+      summary: `Nota fiscal ${invoice} do pedido #${id} (${o.client_name})` + (o.invoice_number ? ` (antes: ${o.invoice_number}).` : '.'),
     });
   })();
   return getOrder(db, user, id);
@@ -302,6 +378,7 @@ function decorate(db, user, o, lines) {
   const out = {
     ...o,
     status_label: STATUS_LABELS[o.status],
+    outside: isOutside(o.client_city),
     late: OPEN_STATUSES.includes(o.status) && o.due_date && o.due_date < today,
     items: lines.map((l) => ({
       ...l,
@@ -322,7 +399,7 @@ function decorate(db, user, o, lines) {
 }
 
 const ORDER_SELECT = `
-  SELECT o.*, c.name AS client_name, c.phone AS client_phone, c.address AS client_address,
+  SELECT o.*, c.name AS client_name, c.phone AS client_phone, c.address AS client_address, c.city AS client_city,
          u.name AS created_by_name, ud.name AS delivered_by_name, us.name AS shipped_by_name
     FROM orders o
     JOIN clients c ON c.id = o.client_id
@@ -386,7 +463,7 @@ function packableOrders(db, user) {
 }
 
 module.exports = {
-  STATUS_LABELS, OPEN_STATUSES, canSeePrices, createClient, updateClient, listClients,
-  createOrder, updateOrder, shipOrder, deliverOrder, cancelOrder, getOrder, listOrders, packableOrders,
+  STATUS_LABELS, OPEN_STATUSES, CHANNELS, canSeePrices, createClient, updateClient, listClients, orderRules, isOutside,
+  createOrder, updateOrder, setInvoice, shipOrder, deliverOrder, cancelOrder, getOrder, listOrders, packableOrders,
   addPacked, recomputeStatus, syncReceivable,
 };

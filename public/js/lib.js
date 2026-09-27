@@ -154,7 +154,7 @@ export const fmtDmy = (day) => (day ? day.split('-').reverse().join('/') : '—'
 // ---------- API ----------
 
 export class ApiError extends Error {
-  constructor(message, status) { super(message); this.status = status; }
+  constructor(message, status, data = {}) { super(message); this.status = status; this.data = data; }
 }
 
 export async function api(path, { method = 'GET', body } = {}) {
@@ -173,7 +173,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   if (res.status === 401 && !path.startsWith('/auth/')) {
     window.dispatchEvent(new CustomEvent('gsc:logout'));
   }
-  if (!res.ok) throw new ApiError(data.error || `Erro ${res.status}`, res.status);
+  if (!res.ok) throw new ApiError(data.error || `Erro ${res.status}`, res.status, data);
   return data;
 }
 

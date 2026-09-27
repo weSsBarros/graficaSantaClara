@@ -519,3 +519,8 @@ pre.report { white-space: pre-wrap; font: .9rem/1.5 var(--font); background: var
 @media (max-width: 600px) { .sysinfo { grid-template-columns: 1fr; } .sysinfo dd { margin-bottom: 6px; } }
 .addr svg { width: 16px; height: 16px; vertical-align: -3px; color: var(--text-2); }
 .contact a { color: inherit; text-decoration: underline; text-decoration-color: var(--grid); text-underline-offset: 3px; }
+.alerts-table input.input { width: 84px; min-height: 40px; padding: 6px 10px; display: inline-block; }
+.alerts-table input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
+.alerts-table td { white-space: nowrap; }
+.demo-bar { display: flex; gap: 8px; align-items: flex-start; padding: 8px 16px; background: var(--accent-soft); color: var(--text); font-size: .88rem; border-bottom: 1px solid var(--grid); }
+.demo-bar svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--accent-ink); }

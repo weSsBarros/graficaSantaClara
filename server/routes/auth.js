@@ -11,6 +11,7 @@ const {
   setSessionCookie, clearSessionCookie, requireUser,
 } = require('../auth');
 const notify = require('../services/notify');
+const { getSetting } = require('../db');
 
 module.exports = function authRoutes(db) {
   const r = express.Router();
@@ -82,6 +83,7 @@ module.exports = function authRoutes(db) {
         self_undo_minutes: config.selfUndoMinutes,
         max_backdate_days: config.maxBackdateDays,
         notify: notify.isConfigured(db),
+        demo_data: !!getSetting(db, 'demo_data', null),
       },
     });
   });

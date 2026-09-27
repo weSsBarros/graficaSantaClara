@@ -1,6 +1,8 @@
 'use strict';
 
 const { test, before, after } = require('node:test');
+// Cópias de segurança dos testes (ao zerar o sistema) ficam numa pasta temporária.
+process.env.BACKUP_DIR = require('node:path').join(require('node:os').tmpdir(), `gsc-test-backups-${process.pid}`);
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { openDatabase } = require('../server/sqlite');
@@ -34,9 +36,9 @@ after(() => {
 const userId = (name) => db.prepare('SELECT id FROM users WHERE name = ?').get(name).id;
 const itemId = (name) => db.prepare('SELECT id FROM items WHERE name = ?').get(name).id;
 const qty = (name) => db.prepare('SELECT quantity FROM items WHERE name = ?').get(name).quantity;
-const PAPEL = 'Papel branco 46x66';
-const OFERTA = 'Oferta 46x66';
-const APROVEITE = 'Aproveite 46x66';
+const PAPEL = 'Papel branco 94x66';
+const OFERTA = 'Oferta';
+const APROVEITE = 'Aproveite';
 
 /** Cliente HTTP simples que guarda o cookie de sessão. */
 function client() {
@@ -106,12 +108,19 @@ test('PIN errado conta tentativas e bloqueia depois de 5', async () => {
 
 // ---------- itens e estoque ----------
 
-test('cadastro inicial: papéis por formato, impressos por modelo, tinta e chapa', () => {
-  const items = db.prepare('SELECT name, category, source, made_from_item_id FROM items ORDER BY sort_order').all();
-  assert.equal(items.filter((i) => i.category === 'impresso').length, 6);
-  const oferta = items.find((i) => i.name === OFERTA);
-  assert.equal(oferta.made_from_item_id, itemId(PAPEL));
-  assert.ok(items.find((i) => i.name === 'Chapa de impressão'));
+test('cadastro inicial: papel 94x66 e produtos com o rendimento de cada folha', () => {
+  const items = db.prepare('SELECT * FROM items ORDER BY sort_order').all();
+  const get = (n) => items.find((i) => i.name === n);
+  assert.deepEqual(items.filter((i) => i.category === 'impresso').map((i) => [i.name, i.yield_per_sheet]), [
+    ['Amarelo grande 94x66', 1], ['Amarelo pequeno 46x64', 2], ['Oferta', 2], ['Aproveite', 2], ['Splash', 8],
+  ]);
+  assert.equal(get(PAPEL).pack_size, 150);
+  assert.equal(get(OFERTA).made_from_item_id, itemId(PAPEL));
+  assert.equal(get('Splash').size, null);
+  assert.equal(get('Amarelo pequeno 46x64').package_sizes, '150,200');
+  assert.equal(get('Amarelo grande 94x66').package_sizes, '150,100');
+  assert.ok(get('Chapa de impressão'));
+  assert.ok(!items.some((i) => /96x64|46x66/.test(i.name)));
 });
 
 test('administração ajusta embalagem, alertas e detalhes do item', async () => {
@@ -168,17 +177,24 @@ test('impressão: papel sai, produto entra, chapa e tinta descontadas', async ()
     extras: [{ item_id: itemId('Chapa de impressão'), quantity: 2 }, { item_id: itemId('Tinta amarela'), quantity: 0.5 }],
   }));
   assert.equal(qty(PAPEL), 15000);
-  assert.equal(qty(OFERTA), 4970);
+  assert.equal(qty(OFERTA), 9970); // 5.000 folhas × 2 − 30 que saíram ruins
   assert.equal(qty('Chapa de impressão'), 38);
   assert.equal(qty('Tinta amarela'), 9.5);
   assert.match(r.operation.summary, /Tinta amarela \(0,5 litro\)/);
+  assert.match(r.operation.summary, /2 por folha/);
   ok(await c.post('/api/ops/impressao', { product_id: itemId(APROVEITE), input_qty: 2000 }));
-  assert.equal(qty(APROVEITE), 2000);
+  assert.equal(qty(APROVEITE), 4000);
+  // Splash: 8 por folha; informando quantas saíram boas, a perda é calculada
+  const s = ok(await c.post('/api/ops/impressao', { product_id: itemId('Splash'), input_qty: 100, good_qty: 790 }));
+  assert.equal(qty('Splash'), 790);
+  assert.equal(s.operation.waste_qty, 10);
+  assert.equal(qty(PAPEL), 12900);
 });
 
 test('impressão: perda maior que o usado e produto que não é impresso são recusados', async () => {
   const c = await client().login('Natan');
-  assert.equal((await c.post('/api/ops/impressao', { product_id: itemId(OFERTA), input_qty: 10, waste_qty: 11 })).status, 400);
+  assert.equal((await c.post('/api/ops/impressao', { product_id: itemId(OFERTA), input_qty: 10, waste_qty: 21 })).status, 400);
+  assert.equal((await c.post('/api/ops/impressao', { product_id: itemId(OFERTA), input_qty: 10, good_qty: 21 })).status, 400);
   assert.equal((await c.post('/api/ops/impressao', { product_id: itemId(PAPEL), input_qty: 10 })).status, 400);
 });
 
@@ -213,7 +229,7 @@ test('empacotamento ligado ao pedido atualiza o andamento', async () => {
   const [lineOferta, lineAprov] = order.items;
   const r = ok(await eulir.post('/api/ops/empacotamento', { order_item_id: lineOferta.id, packages: 10, per_package: 250, waste_qty: 5 }));
   assert.match(r.operation.summary, /pedido #\d+ \(Supermercado Cohama\)/);
-  assert.equal(qty(OFERTA), 4970 - 2505);
+  assert.equal(qty(OFERTA), 9970 - 2505);
   let o = ok(await eulir.get(`/api/orders/${orderId}`), 200);
   assert.equal(o.status, 'parcial');
   assert.equal(o.items[0].packed, 2500);
@@ -263,6 +279,70 @@ test('pedido alterado e cancelado mantém a conta a receber em dia', async () =>
   assert.equal((await ana.post(`/api/orders/${o.id}/cancel`, {})).status, 400); // precisa de motivo
   ok(await ana.post(`/api/orders/${o.id}/cancel`, { reason: 'cliente desistiu' }), 200);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM finance_entries WHERE order_id = ? AND canceled_at IS NULL').get(o.id).n, 0);
+});
+
+test('regras do pedido: mínimo de unidades, valor mínimo fora de São Luís e exceção da administração', async () => {
+  const ana = await client().login('Ana');
+  const marcia = await client().login('Márcia');
+  const line = (quantity, price = 0.5) => [{ item_id: itemId(OFERTA), quantity, unit_price: price }];
+  const small = await ana.post('/api/orders', { client_name: 'Padaria Lua', items: line(200) });
+  assert.equal(small.status, 400);
+  assert.match(small.data.error, /mínimo é de 300 unidades/);
+  assert.equal(small.data.code, 'abaixo_do_minimo');
+  assert.equal(small.data.pode_liberar, false);
+  // a auxiliar não consegue forçar; a administração libera e fica registrado
+  assert.equal((await ana.post('/api/orders', { client_name: 'Padaria Lua', items: line(200), ignore_minimum: true })).status, 400);
+  assert.equal((await marcia.post('/api/orders', { client_name: 'Padaria Lua', items: line(200) })).data.pode_liberar, true);
+  const ex = ok(await marcia.post('/api/orders', { client_name: 'Padaria Lua', items: line(200), ignore_minimum: true }));
+  assert.match(db.prepare("SELECT summary FROM audit_log WHERE action = 'pedido_criado' AND entity_id = ?").get(ex.id).summary, /EXCEÇÃO/);
+
+  // fora de São Luís: valor mínimo definido pela administração
+  ok(await marcia.put('/api/settings', { min_order_value_outside: 500 }), 200);
+  const rules = ok(await ana.get('/api/orders/rules'), 200);
+  assert.equal(rules.min_units, 300);
+  assert.equal(rules.min_value_outside, 500);
+  const far = await ana.post('/api/orders', { client_name: 'Supermercado Imperatriz', client_city: 'Imperatriz', items: line(400) });
+  assert.equal(far.status, 400);
+  assert.match(far.data.error, /fora de São Luís \(Imperatriz\).*R\$\s?500,00/);
+  const okFar = ok(await ana.post('/api/orders', {
+    client_name: 'Supermercado Imperatriz', client_city: 'Imperatriz', items: line(1000), channel: 'WhatsApp', invoice_number: '1520',
+  }));
+  assert.equal(okFar.outside, true);
+  assert.equal(okFar.client_city, 'Imperatriz');
+  assert.equal(okFar.channel, 'WhatsApp');
+  assert.equal(okFar.invoice_number, '1520');
+  // São Luís (com ou sem acento, com "- MA") não tem valor mínimo
+  ok(await ana.post('/api/orders', { client_name: 'Mercadinho Centro', client_city: 'Sao Luis - MA', items: line(300, 0.1) }));
+  assert.equal((await ana.post('/api/orders', { client_name: 'X', items: line(300), channel: 'Pombo-correio' })).status, 400);
+
+  // nota fiscal emitida depois
+  const o = ok(await ana.post('/api/orders', { client_name: 'Padaria Sol', items: line(300) }));
+  assert.equal(o.invoice_number, null);
+  const withNf = ok(await ana.post(`/api/orders/${o.id}/invoice`, { invoice_number: '1533' }), 200);
+  assert.equal(withNf.invoice_number, '1533');
+  assert.ok(withNf.invoice_at);
+  assert.equal((await (await client().login('Wesley')).post(`/api/orders/${o.id}/invoice`, { invoice_number: '1' })).status, 403);
+  ok(await marcia.put('/api/settings', { min_order_value_outside: 0 }), 200);
+});
+
+test('papel branco também é vendido: pedido e empacotamento com os pacotes usuais', async () => {
+  const ana = await client().login('Ana');
+  const o = ok(await ana.post('/api/orders', { client_name: 'Gráfica Parceira', items: [{ item_id: itemId(PAPEL), quantity: 300, unit_price: 0.3 }] }));
+  const eulir = await client().login('Eulir');
+  const before = qty(PAPEL);
+  ok(await eulir.post('/api/ops/empacotamento', { order_item_id: o.items[0].id, packages: 2, per_package: 150 }));
+  assert.equal(qty(PAPEL), before - 300);
+  assert.equal(ok(await eulir.get(`/api/orders/${o.id}`), 200).status, 'pronto');
+  const marcia = await client().login('Márcia');
+  const item = ok(await marcia.put(`/api/items/${itemId('Splash')}`, { package_sizes: '100; 200 200', yield_per_sheet: 8 }), 200);
+  assert.equal(item.package_sizes, '100,200');
+  assert.equal((await marcia.put(`/api/items/${itemId('Splash')}`, { yield_per_sheet: 0 })).status, 400);
+});
+
+test('manutenção saiu do sistema', async () => {
+  const marcia = await client().login('Márcia');
+  assert.equal((await marcia.get('/api/maintenance')).status, 404);
+  assert.ok(!('manutencao' in ok(await marcia.get('/api/roles'), 200).perms));
 });
 
 // ---------- financeiro ----------
@@ -441,7 +521,7 @@ test('administração libera permissões por função (sem dar as exclusivas)', 
   const me = ok(await natan.get('/api/me'), 200);
   assert.ok(me.perms.includes('pedidos'));
   assert.ok(!me.perms.includes('cadastros'));
-  ok(await natan.post('/api/orders', { client_name: 'Mercearia', items: [{ item_id: itemId(OFERTA), quantity: 100 }] }));
+  ok(await natan.post('/api/orders', { client_name: 'Mercearia', items: [{ item_id: itemId(OFERTA), quantity: 300 }] }));
   ok(await marcia.put('/api/roles', { roles: { impressor: imp.perms } }), 200);
   assert.equal((await natan.post('/api/orders', { client_name: 'Mercearia', items: [{ item_id: itemId(OFERTA), quantity: 1 }] })).status, 403);
 });
@@ -588,6 +668,41 @@ test('banco da versão 1 é migrado sem perder dados', () => {
   old.close();
 });
 
+test('catálogo antigo ainda sem uso é trocado pelo novo na atualização (v4)', () => {
+  const old = openDatabase(':memory:');
+  for (const step of MIGRATIONS.slice(0, 3)) (typeof step === 'function' ? step(old) : old.exec(step));
+  old.pragma('user_version = 3');
+  const now = new Date().toISOString();
+  const ins = old.prepare('INSERT INTO items (name, category, source, unit, made_from_item_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const paper = Number(ins.run('Papel branco 46x66', 'papel', 'compra', 'folha', null, now, now).lastInsertRowid);
+  ins.run('Oferta 46x66', 'impresso', 'producao', 'folha', paper, now, now);
+  ins.run('Tinta amarela', 'tinta', 'compra', 'litro', null, now, now);
+  ins.run('Produto da Márcia', 'impresso', 'producao', 'folha', paper, now, now);
+  migrate(old);
+  const names = old.prepare('SELECT name FROM items ORDER BY id').all().map((r) => r.name);
+  assert.ok(!names.includes('Papel branco 46x66') && !names.includes('Oferta 46x66'));
+  for (const n of ['Papel branco 94x66', 'Amarelo grande 94x66', 'Amarelo pequeno 46x64', 'Oferta', 'Aproveite', 'Splash', 'Produto da Márcia']) {
+    assert.ok(names.includes(n), n);
+  }
+  assert.equal(names.filter((n) => n === 'Tinta amarela').length, 1);
+  assert.equal(old.prepare("SELECT made_from_item_id FROM items WHERE name = 'Produto da Márcia'").get().made_from_item_id, null);
+  assert.equal(old.pragma('foreign_key_check').length, 0);
+  old.close();
+
+  // com movimento registrado, o catálogo fica como está
+  const used = openDatabase(':memory:');
+  for (const step of MIGRATIONS.slice(0, 3)) (typeof step === 'function' ? step(used) : used.exec(step));
+  used.pragma('user_version = 3');
+  used.prepare("INSERT INTO users (name, role, pin_hash, created_at) VALUES ('Márcia', 'admin', 'x', ?)").run(now);
+  const pid = Number(ins.run.call(used.prepare('INSERT INTO items (name, category, source, unit, made_from_item_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    'Papel branco 46x66', 'papel', 'compra', 'folha', null, now, now).lastInsertRowid);
+  used.prepare("INSERT INTO operations (type, user_id, summary, occurred_at, created_at) VALUES ('entrada', 1, 'x', ?, ?)").run(now, now);
+  used.prepare('INSERT INTO movements (operation_id, item_id, delta, balance_after, occurred_at, created_at) VALUES (1, ?, 10, 10, ?, ?)').run(pid, now, now);
+  migrate(used);
+  assert.deepEqual(used.prepare('SELECT name FROM items').all().map((r) => r.name), ['Papel branco 46x66']);
+  used.close();
+});
+
 test('comando de emergência redefine o PIN direto no servidor', async () => {
   const os = require('node:os');
   const path = require('node:path');
@@ -635,4 +750,41 @@ test('hospedagem: pasta dos dados fora da publicação, "~/" e porta como socket
   assert.equal(hosted.dbPath, path.join(os.homedir(), 'dados-grafica', 'grafica.db'));
   assert.equal(hosted.port, '/tmp/app.sock');
   assert.equal(read({ PORT: '8080' }).port, 8080);
+});
+
+// Por último: estes testes apagam e recriam os dados.
+test('dados fictícios só num sistema vazio; zerar guarda cópia e mantém pessoas e travas', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const marcia = await client().login('Márcia');
+  assert.equal((await marcia.post('/api/system/demo', {})).status, 409); // já tem lançamentos
+  assert.equal((await (await client().login('Joatan')).post('/api/system/reset', { confirm: 'ZERAR' })).status, 403);
+  assert.equal((await marcia.post('/api/system/reset', { confirm: 'sim' })).status, 400);
+  const users = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+  const r = ok(await marcia.post('/api/system/reset', { confirm: 'zerar' }), 200);
+  assert.ok(fs.existsSync(path.join(process.env.BACKUP_DIR, r.backup)));
+  const count = (t) => db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
+  for (const t of ['operations', 'movements', 'orders', 'clients', 'finance_entries']) assert.equal(count(t), 0, t);
+  assert.equal(count('items'), 8);
+  assert.equal(count('users'), users);
+  assert.equal(count('audit_log'), 1);
+  assert.throws(() => db.prepare('DELETE FROM audit_log').run(), /não pode ser apagado/);
+  assert.equal(ok(await marcia.get('/api/system'), 200).fresh, true);
+
+  ok(await marcia.post('/api/system/demo', {}), 200);
+  assert.equal(ok(await marcia.get('/api/me'), 200).config.demo_data, true);
+  const statuses = db.prepare('SELECT DISTINCT status FROM orders').all().map((x) => x.status).sort();
+  assert.deepEqual(statuses, ['aberto', 'cancelado', 'entregue', 'parcial', 'pronto', 'saiu']);
+  assert.ok(db.prepare("SELECT COUNT(*) AS n FROM orders o JOIN clients c ON c.id = o.client_id WHERE c.city = 'Imperatriz'").get().n > 0);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE summary LIKE '%EXCEÇÃO%'").get());
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM items WHERE quantity < 0').get().n, 0);
+  for (const type of ['entrada', 'retirada', 'ajuste', 'impressao', 'empacotamento', 'estorno']) {
+    assert.ok(db.prepare('SELECT 1 FROM operations WHERE type = ?').get(type), type);
+  }
+  assert.equal((await marcia.post('/api/system/demo', {})).status, 409);
+
+  ok(await marcia.post('/api/system/reset', { confirm: 'ZERAR' }), 200);
+  assert.equal(ok(await marcia.get('/api/me'), 200).config.demo_data, false);
+  assert.equal(ok(await marcia.get('/api/orders/rules'), 200).min_value_outside, 0);
+  fs.rmSync(process.env.BACKUP_DIR, { recursive: true, force: true });
 });

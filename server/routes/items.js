@@ -29,6 +29,8 @@ const FIELD_LABELS = {
   code: 'referência',
   barcode: 'código de barras',
   made_from_item_id: 'papel usado',
+  yield_per_sheet: 'rende por folha',
+  package_sizes: 'pacotes usuais',
   notes: 'observações',
   active: 'ativo',
   sort_order: 'ordem',
@@ -47,6 +49,12 @@ function readItem(db, body, selfId = null) {
     if (!base || madeFrom === selfId) throw new HttpError(400, 'Escolha um papel válido em "Feito com".');
   }
   const barcode = str(body.barcode, 'código de barras', { max: 64 });
+  // Pacotes usuais no empacotamento, ex.: "150, 200".
+  const packs = str(body.package_sizes, 'pacotes usuais', { max: 60 });
+  const packageSizes = packs
+    ? packs.split(/[,;\s]+/).filter(Boolean).map((n) => num(n.replace(',', '.'), 'pacotes usuais', { positive: true, max: 1e6 }))
+    : [];
+  if (packageSizes.length > 6) throw new HttpError(400, 'Informe no máximo 6 tamanhos de pacote.');
   return {
     name: str(body.name, 'o nome do item', { required: true, max: 80 }),
     category: oneOf(body.category, 'categoria', Object.keys(stock.CATEGORIES)),
@@ -67,6 +75,10 @@ function readItem(db, body, selfId = null) {
     code: str(body.code, 'referência', { max: 60 }),
     barcode: barcode ? barcode.replace(/\s+/g, '') : null,
     made_from_item_id: madeFrom || null,
+    yield_per_sheet: source === 'producao'
+      ? num(body.yield_per_sheet ?? 1, 'quanto rende cada folha', { positive: true, max: 1000 })
+      : 1,
+    package_sizes: packageSizes.length ? [...new Set(packageSizes)].join(',') : null,
     notes: str(body.notes, 'observações', { max: 500 }),
     active: body.active === undefined ? 1 : bool(body.active) ? 1 : 0,
     sort_order: num(body.sort_order ?? 0, 'ordem', { integer: true, min: -1000, max: 1000 }),

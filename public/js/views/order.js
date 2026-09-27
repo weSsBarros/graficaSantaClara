@@ -23,7 +23,7 @@ export async function render(ctx) {
   el.innerHTML = String(html`
     <div class="page-head">
       <div><span class="cat">Pedido #${o.id}</span><h1 style="margin-top:4px">${o.client_name}</h1>
-        <p class="muted contact">${contactLinks(o.client_phone, o.client_address)}</p></div>
+        <p class="muted contact">${contactLinks(o.client_phone, o.client_address)}${o.outside ? html`${o.client_phone || o.client_address ? ' · ' : ''}<span class="tag">Fora de São Luís: ${o.client_city}</span>` : ''}</p></div>
       ${statusChip(o)}
     </div>
 
@@ -33,6 +33,10 @@ export async function render(ctx) {
           <div class="small muted">Entrega combinada</div>
           <b class="${o.late ? 'late' : ''}">${o.due_date ? fmtDay(o.due_date) : 'sem data'}${o.late ? ' — atrasado' : ''}</b>
         </div>
+        ${o.channel ? html`<div><div class="small muted">Chegou por</div><b>${o.channel}</b></div>` : ''}
+        ${prices ? html`<div><div class="small muted">Nota fiscal</div>${o.invoice_number
+          ? html`<b>${o.invoice_number}</b>${o.invoice_at ? html` <span class="xs muted">${fmtDateTime(o.invoice_at)}</span>` : ''}`
+          : html`<span class="late">não emitida</span>`}</div>` : ''}
         ${prices ? html`<div><div class="small muted">Valor</div><b>${brl(o.total)}</b>
           ${o.payment ? html` <span class="status ${o.payment.status === 'pago' ? 'pago' : o.payment.status === 'sem_valor' ? '' : 'aberto'}">${{ pago: 'Pago', parcial: 'Pago em parte', pendente: 'A receber', sem_valor: 'Sem valor' }[o.payment.status]}</span>` : ''}</div>` : ''}
       </div>
@@ -48,6 +52,7 @@ export async function render(ctx) {
         ${open && can('empacotamento') && o.items.some((l) => l.remaining > 0) ? html`<a class="btn" href="#/lancar/empacotamento?pedido=${o.id}">${icon('package')} Registrar empacotamento</a>` : ''}
         ${['aberto', 'parcial', 'pronto'].includes(o.status) && can('entrega') ? html`<button class="btn ${o.status === 'pronto' ? '' : 'secondary'}" data-ship>${icon('truck')} Saiu para entrega</button>` : ''}
         ${open && can('entrega') ? html`<button class="btn ${o.status === 'saiu' ? '' : 'secondary'}" data-deliver>${icon('check')} Registrar entrega</button>` : ''}
+        ${o.status !== 'cancelado' && can('pedidos') ? html`<button class="btn ${o.invoice_number ? 'ghost' : 'secondary'}" data-invoice>${icon('edit')} ${o.invoice_number ? 'Corrigir nota fiscal' : 'Registrar nota fiscal'}</button>` : ''}
         ${open && can('pedidos') ? html`<a class="btn ghost" href="#/pedido/${o.id}/editar">${icon('edit')} Editar</a>` : ''}
         ${open && can('pedidos') ? html`<button class="btn danger" data-cancel>Cancelar pedido</button>` : ''}
       </div>
@@ -78,6 +83,17 @@ export async function render(ctx) {
       });
       if (carrier === null) return;
       try { await api(`/orders/${o.id}/ship`, { method: 'POST', body: { carrier } }); toast('Saída registrada.'); reload(); } catch (err) { toastError(err); }
+    };
+  }
+  const invoice = $('[data-invoice]', el);
+  if (invoice) {
+    invoice.onclick = async () => {
+      const n = await promptDialog({
+        title: `Nota fiscal do pedido #${o.id}`, label: 'Número da nota fiscal', value: o.invoice_number || '',
+        inputmode: 'numeric', confirmText: 'Salvar',
+      });
+      if (n === null) return;
+      try { await api(`/orders/${o.id}/invoice`, { method: 'POST', body: { invoice_number: n } }); toast('Nota fiscal registrada.'); reload(); } catch (err) { toastError(err); }
     };
   }
   const deliver = $('[data-deliver]', el);

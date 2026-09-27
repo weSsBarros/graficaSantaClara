@@ -3,7 +3,7 @@
 Sistema web da Gráfica Santa Clara (São Luís – MA). Funciona no **celular e no computador** pelo
 navegador (dá para "instalar" na tela inicial do celular) e cobre o caminho inteiro do trabalho:
 
-**compra de papel, tinta e chapa → impressão → empacotamento → entrega ao cliente → recebimento**,
+**compra do papel → impressão e corte → separação e empacotamento → entrega nas lojas → recebimento**,
 
 com **registro de tudo o que foi feito**, **alertas de estoque** (inclusive por WhatsApp/e-mail),
 **painel com gráficos e previsões** e **financeiro** (contas a pagar e a receber).
@@ -14,16 +14,15 @@ com **registro de tudo o que foi feito**, **alertas de estoque** (inclusive por 
 
 | Área | O que tem |
 |---|---|
-| **Estoque** | Papéis por formato (46x66, 96x64), cartazes por modelo (Oferta, Aproveite, Splash), tintas de várias cores (cadastro rápido de cor nova), chapas e outros materiais. Saldo em unidade e embalagem (ex.: `20.000 folhas (80 resmas)`), busca e leitura de **código de barras** pela câmera. |
-| **Alertas** | Para cada item a administração escolhe **quando avisar**: quando o estoque durar menos de *N* dias (calculado pelo consumo) e/ou quando ficar abaixo de uma quantidade. Sem os valores ainda? Depois de uma semana de uso o sistema **sugere** os números. Aviso na tela e, se configurado, por **WhatsApp, e-mail ou Telegram**, com sugestão de quanto comprar. |
-| **Produção** | **Impressão** (Natan): escolhe o produto (ex.: Oferta 46x66), o sistema desconta o papel branco certo, registra a perda e as **chapas e a tinta** usadas. **Empacotamento** (Eulir): escolhe o **pedido** e o produto, pacotes × folhas por pacote. |
-| **Pedidos até a entrega** | Cliente, produtos, quantidades, preços e data combinada. Andamento do empacotamento por produto, **saída para entrega** (quem levou), **entrega** (quem recebeu), pedidos atrasados em destaque, cadastro de clientes. |
+| **Estoque** | **Papel branco 94x66** (pacotes de 150 folhas, também vendido branco), **Amarelo grande 94x66**, **Amarelo pequeno 46x64**, **Oferta**, **Aproveite** e **Splash**, tintas de várias cores (cadastro rápido de cor nova), chapas e outros materiais. Saldo em unidade e embalagem (ex.: `3.000 folhas (20 pacotes)`), busca e leitura de **código de barras** pela câmera. |
+| **Avisos de estoque por item** | Cada produto tem a sua saída, então cada um tem o seu aviso: quando o estoque durar menos de *N* dias (pela saída média daquele item) e/ou quando ficar abaixo de uma quantidade. Uma tabela em Configurações → Itens mostra a saída de cada item por dia e **sugere** os números. Aviso na tela e, se configurado, por **WhatsApp, e-mail ou Telegram**, com sugestão de quanto comprar. |
+| **Produção** | **Impressão** (Natan): escolhe o produto, digita quantas folhas brancas usou e o sistema calcula quanto rende (**Amarelo grande 1 por folha; Amarelo pequeno, Oferta e Aproveite 2; Splash 8**), a perda depois de cortar e separar, e as **chapas e a tinta** usadas. **Empacotamento** (Eulir): escolhe o **pedido** e o produto, pacotes × quantidade por pacote, com botões para os pacotes usuais (150/200 nos pequenos, 150/100 nos grandes). |
+| **Pedidos até a entrega** | Cliente (com a **cidade**), por onde chegou (WhatsApp, e-mail...), **nota fiscal**, produtos, quantidades, preços e data combinada. Regras: **pedido mínimo de 300 unidades** e **valor mínimo para fora de São Luís** (a administração define; só ela libera exceções). Andamento do empacotamento, pedido **separado aguardando o entregador**, **saída** (quem levou), **entrega** (quem recebeu), atrasados em destaque. |
 | **Financeiro** | Despesas e receitas por categoria (papel, tinta, chapa, energia, aluguel, salários...), contas fixas que se repetem todo mês, **contas a pagar e a receber** com vencimento. Compras registradas no estoque com valor viram despesa automaticamente; pedidos com valor viram contas a receber. Resultado do mês, gráfico de 12 meses, despesas por categoria e **custo de material por folha impressa**. |
-| **Painel** | Folhas impressas e empacotadas por dia e **por produto**, perda na impressão, comparação com o período anterior, pedidos entregues, quantos dias o estoque dura, **data prevista para acabar** e evolução de cada item. |
+| **Painel** | Produzido e empacotado por dia e **por produto**, perda na produção, comparação com o período anterior, pedidos entregues, quantos dias o estoque dura, **data prevista para acabar** e evolução de cada item. |
 | **Relatórios automáticos** | **Relatório semanal** (produção, pedidos, estoque, financeiro) e **resumo diário** (contas vencendo, pedidos atrasados), enviados por WhatsApp/e-mail/Telegram no dia e hora escolhidos. |
 | **Histórico e registro de atividades** | Todos os lançamentos e tudo o que foi feito no sistema (entradas, PINs errados, cadastros, pagamentos, entregas, alertas). **Não pode ser alterado nem apagado**; erros se corrigem com **estorno**. Exporta planilha (Excel). |
-| **Manutenção** | Limpezas, consertos e trocas de peça da impressora, com tempo de máquina parada. |
-| **Configurações** | Itens (com todos os detalhes e alertas), pessoas, **permissões por função** (marcar/desmarcar), canais de aviso, previsões e backup. |
+| **Configurações** | Itens (detalhes, rendimento por folha, pacotes usuais, avisos), pessoas, **permissões por função** (marcar/desmarcar), canais de aviso, regras dos pedidos, previsões, backup e **dados fictícios para testar** (e o botão para zerar depois). |
 
 ## Quem faz o quê
 
@@ -34,7 +33,7 @@ As permissões abaixo são o padrão; a administração muda em **Configuraçõe
 |---|---|---|
 | **Joatan** | Dono | **Ver tudo** — estoque, pedidos, painel, histórico, financeiro e registro de atividades — sem lançar nem alterar nada |
 | **Márcia** | Administração | Tudo, e é a única que mexe no sistema: contagem de estoque, estornos, financeiro, cadastros, permissões, avisos, backup |
-| **Natan** | Impressor | Impressão, entradas, retiradas (tinta, chapa), manutenção da máquina |
+| **Natan** | Impressor | Impressão, entradas, retiradas (tinta, chapa) |
 | **Eulir** | Empacotadora | Empacotamento, saída/entrega, retiradas |
 | **Wesley** | Entregador | Saída e entrega dos pedidos. A tela inicial dele mostra o que está pronto para entregar, com o endereço (abre no mapa) e o telefone do cliente |
 | *(ninguém hoje)* | Auxiliar administrativo | Pedidos e clientes, saída/entrega, entradas de material, retiradas, registro de atividades. Quando alguém assumir, a Márcia cadastra em Configurações → Pessoas |
@@ -50,13 +49,23 @@ Se for a própria Márcia (a única da Administração), rode no servidor:
 ## O fluxo da gráfica no sistema
 
 ```
- Compra (com valor → despesa)
+ Compra do papel branco 94x66 (pacotes de 150; com valor → despesa)
    │
+   ├──────────── vendido branco mesmo ─────────────────────────────────────┐
+   ▼                                                                       │
+ Impressão + corte (Natan)          rende por folha branca:                │
+   Amarelo grande 94x66 ........ 1                                         │
+   Amarelo pequeno 46x64 ....... 2  (cortado ao meio na guilhotina)        │
+   Oferta / Aproveite .......... 2                                         │
+   Splash ...................... 8  (balões de preço)                     │
+   │ perda (depois de separar o bom do ruim), chapas e tinta usadas        │
+   ▼                                                                       ▼
+ Empacotamento (Eulir): pacotes de 150/200 (pequenos) ou 150/100 (grandes) ─► pedido separado
    ▼
- [Papel branco 46x66 / 96x64] ──Impressão (Natan)──► [Oferta / Aproveite / Splash] ──Empacotamento (Eulir)──► Pedido do cliente
-                                 │ perda, chapas e tinta usadas                          │ pacotes × folhas        │
- [Tinta, Chapa] ◄────────────────┘                                                                                ▼
-                                                                                  Saiu para entrega → Entregue → Recebido (financeiro)
+ Wesley busca → Saiu para entrega → Entregue na loja → Recebido (financeiro)
+
+ Administrativo, ao mesmo tempo: pedido chega por WhatsApp/e-mail → Márcia (ou a auxiliar)
+ lança o pedido e a nota fiscal → a Eulir vê o pedido na tela de empacotamento.
 ```
 
 ---
@@ -89,15 +98,25 @@ Os planos Single/Premium da Hostinger não rodam Node.js (só PHP/WordPress).
 
 ## Primeiro uso
 
-1. Na primeira vez o sistema cria as 5 pessoas e os itens: **Papel branco 46x66 e 96x64**,
-   **Oferta / Aproveite / Splash** nos dois formatos, **Tinta amarela** (litro) e **Chapa de impressão**.
+1. Na primeira vez o sistema cria as 5 pessoas e os itens: **Papel branco 94x66** (pacote de 150),
+   **Amarelo grande 94x66**, **Amarelo pequeno 46x64**, **Oferta**, **Aproveite**, **Splash**,
+   **Tinta amarela** (litro) e **Chapa de impressão**.
 2. O **PIN inicial de todo mundo é `2580`**. No primeiro acesso cada pessoa cria o próprio PIN.
-3. A Márcia confere os itens em **Configurações → Itens**: embalagem (ex.: resma com quantas folhas),
-   código de barras, prazo do fornecedor e **quando avisar**. As **cores de tinta** se cadastram no
-   quadro "Cores de tinta" da mesma tela (nome da cor + seletor de cor + litros que existem hoje).
-4. A Márcia faz a **Contagem de estoque** de cada item (o que existe fisicamente hoje).
-5. Em **Configurações → Avisos**, escolha como receber os alertas (WhatsApp, e-mail ou Telegram).
-6. Em **Financeiro**, lance as contas fixas (aluguel, energia, salários...) com "repetir todo mês".
+3. **Quer testar antes?** Em **Configurações → Sistema → Dados de teste**, a Márcia gera uns 3 meses de
+   uso inventado (todo mundo vê uma faixa avisando). Depois de testar, **Zerar o sistema** apaga tudo
+   (guardando uma cópia de segurança antes) e mantém pessoas, PINs, permissões e avisos.
+4. A Márcia confere os itens em **Configurações → Itens**: rendimento por folha, pacotes usuais,
+   código de barras, prazo do fornecedor e, na tabela **Avisos de estoque por item**, quando avisar de
+   cada um. As **cores de tinta** se cadastram no quadro "Cores de tinta" da mesma tela.
+5. Em **Configurações → Sistema → Regras dos pedidos**: pedido mínimo (300 unidades) e o valor mínimo
+   para fora de São Luís.
+6. A Márcia faz a **Contagem de estoque** de cada item (o que existe fisicamente hoje).
+7. Em **Configurações → Avisos**, escolha como receber os alertas (WhatsApp, e-mail ou Telegram).
+8. Em **Financeiro**, lance as contas fixas (aluguel, energia, salários...) com "repetir todo mês".
+
+> Quem já tinha instalado a versão anterior: na atualização, o catálogo antigo (papéis 46x66/96x64 e
+> cartazes por formato) é trocado sozinho pelo novo **se ainda não tiver sido usado**. Se já houver
+> lançamentos, os itens ficam como estão e a Márcia ajusta em Configurações → Itens.
 
 ## Como a previsão e os alertas funcionam
 
@@ -176,7 +195,9 @@ server/
   services/reports.js   textos do relatório semanal e do resumo diário
   services/dashboard.js dados do painel e histórico de cada item
   routes/*.js           API REST (/api/...)
-  seed.js / demo.js     instalação inicial / dados de demonstração
+  seed.js               instalação inicial (pessoas e catálogo com o rendimento de cada produto)
+  demo-data.js          dados fictícios (npm run demo e botão em Configurações → Sistema)
+  reset.js              zerar o sistema (mantém pessoas, permissões e avisos)
 public/
   index.html, css/app.css, js/app.js (rotas e menu), js/views/*.js (telas), js/scanner.js (câmera)
 deploy/                 Caddyfile, .env.example, iniciar-windows.bat
