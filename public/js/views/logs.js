@@ -10,7 +10,7 @@ const ACTION_LABELS = {
   entrada: 'Entrada',
   retirada: 'Retirada',
   ajuste: 'Ajuste de inventário',
-  impressao: 'Impressão',
+  impressao: 'Produção (impressão ou corte)',
   empacotamento: 'Empacotamento',
   estorno: 'Estorno',
   manutencao: 'Manutenção',

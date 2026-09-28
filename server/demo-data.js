@@ -264,24 +264,45 @@ function generateDemo(db, { days = 90, unlockPins = false, by = null } = {}) {
         }
       }
 
-      // Natan produz o que os pedidos em aberto vão precisar (mais uma folga), respeitando o rendimento da folha.
-      const demand = db
+      // Natan produz o que os pedidos em aberto vão precisar (mais uma folga), respeitando o rendimento:
+      // a branca vira Amarelo grande (e cartazes); a Amarelo grande é cortada em duas Amarelo pequeno.
+      const need = new Map(db
         .prepare(
           `SELECT oi.item_id, SUM(oi.quantity - oi.packed) AS need FROM order_items oi JOIN orders o ON o.id = oi.order_id
             WHERE o.status IN ('aberto','parcial') GROUP BY oi.item_id`
         )
-        .all();
-      const runs = demand
-        .map((d) => ({ p: products.find((x) => x.id === d.item_id), need: d.need }))
-        .filter((r) => r.p)
-        .map((r) => ({ ...r, short: r.need + (r.p.name === 'Splash' ? 3000 : 1500) - qty(r.p) }))
+        .all()
+        .map((d) => [d.item_id, d.need]));
+      const buffer = (p) => (p.name === 'Splash' ? 3000 : 1500);
+      const shortOf = new Map(products.map((p) => [p.id, need.has(p.id) ? need.get(p.id) + buffer(p) - qty(p) : 0]));
+      // O que vai ser cortado também precisa sair da impressão antes (a grande cobre as pequenas).
+      for (const p of products) {
+        const base = products.find((x) => x.id === p.made_from_item_id);
+        if (base && shortOf.get(p.id) > 0) {
+          const needBase = Math.ceil((shortOf.get(p.id) + 300) / (p.yield_per_sheet || 1));
+          shortOf.set(base.id, Math.max(shortOf.get(base.id), 0) + Math.max(0, needBase - Math.max(0, qty(base) - (need.get(base.id) || 0))));
+        }
+      }
+      const isCut = (p) => products.some((x) => x.id === p.made_from_item_id);
+      const runs = products
+        .map((p) => ({ p, short: shortOf.get(p.id) }))
         .filter((r) => r.short > 0)
-        .sort((a, b) => b.short - a.short)
-        .slice(0, saturday ? 1 : 3);
+        .sort((a, b) => (isCut(a.p) - isCut(b.p)) || b.short - a.short) // primeiro a impressão, depois o corte
+        .slice(0, saturday ? 2 : 4);
       runs.forEach((r, i) => {
         if (lastDay && i > 0) return;
         if (!tick(at(day, 8 + i * 2, between(10, 50)))) return;
         const perSheet = r.p.yield_per_sheet || 1;
+        if (isCut(r.p)) {
+          // Corte na guilhotina: sem chapa nem tinta; perda pequena.
+          const base = products.find((x) => x.id === r.p.made_from_item_id);
+          const sheets = Math.min(Math.ceil((r.short + 300) / perSheet), Math.floor(qty(base)));
+          if (sheets < 50) return;
+          stock.impressao(db, natan, {
+            product_id: r.p.id, input_qty: sheets, waste_qty: Math.round(sheets * perSheet * (0.002 + rand() * 0.006)),
+          }, ctx);
+          return;
+        }
         const packs = Math.min(Math.ceil((r.short + 600) / perSheet / 150), Math.floor(qty(paper) / 150), 60);
         if (packs < 1) return;
         const sheets = packs * 150;

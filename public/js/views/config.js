@@ -155,7 +155,8 @@ async function itemsTab(box, ctx) {
 function itemForm(box, ctx, item, items, sugg) {
   const isNew = !item;
   const v = item || { category: 'papel', source: 'compra', unit: 'folha', min_stock: 0, alert_days: 10, lead_time_days: 7, notify: 1, active: 1, sort_order: 0 };
-  const papers = items.filter((i) => i.category === 'papel' && i.source === 'compra');
+  // "Feito de": o papel ou outro produto (ex.: Amarelo pequeno é cortado da Amarelo grande).
+  const papers = items.filter((i) => (i.category === 'papel' || i.source === 'producao') && (!item || i.id !== item.id));
   const hint = item && item.forecast && item.forecast.settings_hint;
   const uniq = (list) => list.filter((x, i, a) => x && a.indexOf(x) === i);
   box.innerHTML = String(html`
@@ -169,13 +170,13 @@ function itemForm(box, ctx, item, items, sugg) {
           <label class="field"><span>Origem</span><select class="input" name="source" data-source>
             <option value="compra" ${v.source === 'compra' ? 'selected' : ''}>Comprado de fornecedor</option>
             <option value="producao" ${v.source === 'producao' ? 'selected' : ''}>Produzido aqui (impresso)</option></select></label>
-          <label class="field" data-made><span>Feito com (papel usado na impressão)</span>
+          <label class="field" data-made><span>Feito de (papel ou outro produto)</span>
             <select class="input" name="made_from_item_id"><option value="">—</option>
               ${papers.map((p) => html`<option value="${p.id}" ${p.id === v.made_from_item_id ? 'selected' : ''}>${p.name}</option>`)}</select>
-            <span class="hint">Na impressão, o sistema desconta este papel automaticamente.</span></label>
-          <label class="field" data-yield><span>Quanto rende cada folha desse papel</span>
+            <span class="hint">Na produção, o sistema desconta este material automaticamente (ex.: Amarelo pequeno ← Amarelo grande).</span></label>
+          <label class="field" data-yield><span>Quanto rende cada folha desse material</span>
             <input class="input" name="yield_per_sheet" value="${v.yield_per_sheet ?? 1}" inputmode="decimal">
-            <span class="hint">Ex.: Amarelo grande 1; Amarelo pequeno, Oferta e Aproveite 2; Splash 8.</span></label>
+            <span class="hint">Ex.: Amarelo grande 1 (da branca); Amarelo pequeno 2 (da amarela grande); Oferta e Aproveite 2; Splash 8.</span></label>
         </div>
       </fieldset>
 

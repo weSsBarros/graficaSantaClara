@@ -21,7 +21,7 @@ export async function render(ctx) {
   let days = 60;
   const hint = f.settings_hint && (f.settings_hint.min_stock !== item.min_stock || f.settings_hint.alert_days !== item.alert_days) ? f.settings_hint : null;
   const details = [
-    item.made_from && ['Feito com', html`<a href="#/item/${item.made_from.id}">${item.made_from.name}</a>`],
+    item.made_from && ['Feito de', html`<a href="#/item/${item.made_from.id}">${item.made_from.name}</a>`],
     item.model && ['Modelo', item.model],
     item.size && ['Formato', item.size],
     item.grammage && ['Gramatura', `${fmtNum(item.grammage)} g/m²`],
