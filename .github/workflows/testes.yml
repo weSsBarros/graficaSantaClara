@@ -1,0 +1,33 @@
+name: Testes
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    name: Node ${{ matrix.node }} · ${{ matrix.banco }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+        banco: [better-sqlite3, node-sqlite]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # Com better-sqlite3 (padrão) e sem ele, como numa hospedagem que não compila o módulo:
+      # aí o sistema usa o SQLite embutido do Node (node:sqlite).
+      - name: Instalar dependências
+        run: npm ci ${{ matrix.banco == 'node-sqlite' && '--omit=optional' || '' }}
+
+      - name: Rodar os testes
+        run: npm test
