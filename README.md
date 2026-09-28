@@ -16,7 +16,7 @@ com **registro de tudo o que foi feito**, **alertas de estoque** (inclusive por 
 |---|---|
 | **Estoque** | **Papel branco 94x66** (pacotes de 150 folhas, também vendido branco), **Amarelo grande 94x66**, **Amarelo pequeno 46x64**, **Oferta**, **Aproveite** e **Splash**, tintas de várias cores (cadastro rápido de cor nova), chapas e outros materiais. Saldo em unidade e embalagem (ex.: `3.000 folhas (20 pacotes)`), busca e leitura de **código de barras** pela câmera. |
 | **Avisos de estoque por item** | Cada produto tem a sua saída, então cada um tem o seu aviso: quando o estoque durar menos de *N* dias (pela saída média daquele item) e/ou quando ficar abaixo de uma quantidade. Uma tabela em Configurações → Itens mostra a saída de cada item por dia e **sugere** os números. Aviso na tela e, se configurado, por **WhatsApp, e-mail ou Telegram**, com sugestão de quanto comprar. |
-| **Produção** | **Impressão** (Natan): escolhe o produto, digita quantas folhas brancas usou e o sistema calcula quanto rende (**Amarelo grande 1 por folha; Amarelo pequeno, Oferta e Aproveite 2; Splash 8**), a perda depois de cortar e separar, e as **chapas e a tinta** usadas. **Empacotamento** (Eulir): escolhe o **pedido** e o produto, pacotes × quantidade por pacote, com botões para os pacotes usuais (150/200 nos pequenos, 150/100 nos grandes). |
+| **Produção** | **Impressão ou corte** (Natan): escolhe o produto, digita quantas folhas usou e o sistema calcula quanto rende: a **branca vira Amarelo grande** (1 por folha), Oferta e Aproveite (2) ou Splash (8); a **Amarelo grande, cortada na guilhotina, vira duas Amarelo pequeno**. Registra a perda depois de cortar e separar, e as **chapas e a tinta** usadas na impressão. **Empacotamento** (Eulir): escolhe o **pedido** e o produto, pacotes × quantidade por pacote, com botões para os pacotes usuais (150/200 nos pequenos, 150/100 nos grandes). |
 | **Pedidos até a entrega** | Cliente (com a **cidade**), por onde chegou (WhatsApp, e-mail...), **nota fiscal**, produtos, quantidades, preços e data combinada. Regras: **pedido mínimo de 300 unidades** e **valor mínimo para fora de São Luís** (a administração define; só ela libera exceções). Andamento do empacotamento, pedido **separado aguardando o entregador**, **saída** (quem levou), **entrega** (quem recebeu), atrasados em destaque. |
 | **Financeiro** | Despesas e receitas por categoria (papel, tinta, chapa, energia, aluguel, salários...), contas fixas que se repetem todo mês, **contas a pagar e a receber** com vencimento. Compras registradas no estoque com valor viram despesa automaticamente; pedidos com valor viram contas a receber. Resultado do mês, gráfico de 12 meses, despesas por categoria e **custo de material por folha impressa**. |
 | **Painel** | Produzido e empacotado por dia e **por produto**, perda na produção, comparação com o período anterior, pedidos entregues, quantos dias o estoque dura, **data prevista para acabar** e evolução de cada item. |
@@ -53,11 +53,10 @@ Se for a própria Márcia (a única da Administração), rode no servidor:
    │
    ├──────────── vendido branco mesmo ─────────────────────────────────────┐
    ▼                                                                       │
- Impressão + corte (Natan)          rende por folha branca:                │
-   Amarelo grande 94x66 ........ 1                                         │
-   Amarelo pequeno 46x64 ....... 2  (cortado ao meio na guilhotina)        │
-   Oferta / Aproveite .......... 2                                         │
-   Splash ...................... 8  (balões de preço)                     │
+ Impressão (Natan), por folha branca:                                      │
+   Amarelo grande 94x66 ........ 1 ──► Corte na guilhotina (Natan):        │
+   Oferta / Aproveite .......... 2       1 Amarelo grande = 2 Amarelo      │
+   Splash ...................... 8       pequeno 46x64                     │
    │ perda (depois de separar o bom do ruim), chapas e tinta usadas        │
    ▼                                                                       ▼
  Empacotamento (Eulir): pacotes de 150/200 (pequenos) ou 150/100 (grandes) ─► pedido separado

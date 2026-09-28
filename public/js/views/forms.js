@@ -13,7 +13,7 @@ const KINDS = {
   entrada: { title: 'Entrada de material', button: 'Registrar entrada', perm: 'entrada', icon: 'in' },
   retirada: { title: 'Retirada de material', button: 'Registrar retirada', perm: 'retirada', icon: 'out' },
   ajuste: { title: 'Contagem de estoque', button: 'Salvar contagem', perm: 'ajuste', icon: 'count' },
-  impressao: { title: 'Registrar impressão', button: 'Registrar impressão', perm: 'impressao', icon: 'printer' },
+  impressao: { title: 'Impressão ou corte', button: 'Registrar produção', perm: 'impressao', icon: 'printer' },
   empacotamento: { title: 'Registrar empacotamento', button: 'Registrar empacotamento', perm: 'empacotamento', icon: 'package' },
 };
 
@@ -121,24 +121,35 @@ export async function render(ctx) {
     <textarea class="input" name="note" maxlength="500" placeholder="${ph}"></textarea></label>`;
 
   const perSheet = (p) => (p && p.yield_per_sheet > 0 ? p.yield_per_sheet : 1);
+  const madeFromText = (p) => {
+    const base = byId.get(p.made_from_item_id);
+    const n = fmtNum(perSheet(p));
+    return base && base.source === 'producao' ? `${n} por folha de ${base.name}` : `${n} por folha`;
+  };
   const productPick = () => html`<div class="field"><span class="label">O que foi produzido?</span>
     <div class="pick">${products.map((p) => html`
       <button type="button" data-product="${p.id}" aria-pressed="${p.id === state.productId}">${colorDot(p)}${p.name}
-        <small>${perSheet(p) === 1 ? '1 por folha' : `${fmtNum(perSheet(p))} por folha`} · ${fmtNum(p.quantity)} em estoque</small></button>`)}
+        <small>${madeFromText(p)} · ${fmtNum(p.quantity)} em estoque</small></button>`)}
     </div></div>`;
 
+  // É corte (e não impressão) quando o material de origem é outro produto: Amarelo grande → Amarelo pequeno.
+  const isCut = () => !!(paper() && paper().source === 'producao');
   const paperField = () => {
     const pp = paper();
+    const p = product();
+    const base = p && byId.get(p.made_from_item_id);
+    const options = [...(base && !papers.includes(base) ? [base] : []), ...papers];
     return html`<div class="field" data-paper>
-      <span class="label">Papel usado</span>
+      <span class="label">${isCut() ? 'Cortado de' : 'Papel usado'}</span>
       <select class="input" name="paper_id" data-paper-select>
         ${!pp ? html`<option value="">Escolha o papel</option>` : ''}
-        ${papers.map((i) => html`<option value="${i.id}" ${pp && pp.id === i.id ? 'selected' : ''}>${i.name} — ${fmtNum(i.quantity)} ${plural(i.unit, i.quantity)} em estoque</option>`)}
+        ${options.map((i) => html`<option value="${i.id}" ${pp && pp.id === i.id ? 'selected' : ''}>${i.name} — ${fmtNum(i.quantity)} ${plural(i.unit, i.quantity)} em estoque</option>`)}
       </select></div>`;
   };
+  const inputLabel = () => (isCut() ? `Quantas folhas de ${paper().name} você cortou?` : 'Quantas folhas brancas você usou?');
 
   const extrasField = () => (consumables.length ? html`
-    <div class="field"><span class="label">Usou chapa ou tinta nesta impressão? <span class="muted">(opcional)</span></span>
+    <div class="field" data-extras><span class="label">Usou chapa ou tinta nesta impressão? <span class="muted">(opcional)</span></span>
       <div class="extras">${consumables.map((c) => html`
         <div class="row"><label for="extra-${c.id}">${colorDot(c)}${c.name} <span class="xs muted">(${fmtNum(c.quantity)} em estoque)</span></label>
           <input class="input" id="extra-${c.id}" data-extra="${c.id}" inputmode="decimal" placeholder="0" style="width:110px">
@@ -204,7 +215,7 @@ export async function render(ctx) {
   } else if (kind === 'impressao') {
     if (!products.length) throw new Error('Nenhum produto impresso cadastrado. Peça à administração para cadastrar em Configurações → Itens.');
     fields = html`${productPick()}<div data-paper-slot>${paperField()}</div>
-      ${qtyField('Quantas folhas brancas você usou?', 'input_qty')}
+      ${qtyField(inputLabel(), 'input_qty')}
       <label class="field"><span data-waste-label>Quantas saíram ruins? <span class="muted">(depois de cortar e separar)</span></span>
         <input class="input" name="waste_qty" inputmode="numeric" autocomplete="off" value="0"></label>
       <div class="calc" data-calc></div>${extrasField()}${whenField()}${noteField()}`;
@@ -348,6 +359,7 @@ export async function render(ctx) {
         $('[data-paper-slot]', el).innerHTML = String(paperField());
         bindPaper();
         refreshUnit();
+        refreshProduction();
         updateCalc();
       };
     });
@@ -388,15 +400,28 @@ export async function render(ctx) {
     if (sel) {
       sel.onchange = () => {
         state.paperId = Number(sel.value) || null;
+        $('[data-paper-slot]', el).innerHTML = String(paperField());
+        bindPaper();
         refreshUnit();
+        refreshProduction();
         updateCalc();
       };
     }
   }
 
+  // Impressão x corte: muda a pergunta e esconde chapa/tinta, que não se usa na guilhotina.
+  function refreshProduction() {
+    if (kind !== 'impressao') return;
+    const label = $('[data-qty-label]', el);
+    if (label) label.textContent = inputLabel();
+    const extras = $('[data-extras]', el);
+    if (extras) extras.classList.toggle('hidden', isCut());
+  }
+
   bindUnitSeg();
   bindPicks();
   bindPaper();
+  refreshProduction();
   fillPerPackage();
 
   const itemSel = $('[data-item]', el);

@@ -18,7 +18,7 @@ const MANAGER_ROLES = ['admin'];
 
 // Permissões que podem ser dadas a qualquer função.
 const PERMS = {
-  impressao: 'Registrar impressão',
+  impressao: 'Registrar impressão e corte',
   empacotamento: 'Registrar empacotamento',
   entrada: 'Registrar entrada (compra que chegou)',
   retirada: 'Registrar retirada (ex.: tinta, chapa)',

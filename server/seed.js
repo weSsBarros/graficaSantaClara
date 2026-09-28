@@ -16,7 +16,9 @@ const USERS = [
 ];
 
 // Como a gráfica trabalha: compra papel branco 94x66 (pacotes de 150 folhas) e vende assim mesmo
-// ou transforma em produtos. "Rende" = quantas unidades do produto saem de uma folha branca.
+// ou transforma em produtos. A folha branca vira Amarelo grande; a Amarelo grande, cortada ao meio
+// na guilhotina, vira duas Amarelo pequeno. "Rende" = quantas unidades saem de uma folha do material
+// de origem (made_from).
 const PAPER = {
   key: 'papel', name: 'Papel branco 94x66', category: 'papel', source: 'compra', unit: 'folha', size: '94x66',
   pack_unit: 'pacote', pack_size: 150, package_sizes: '150,100', alert_days: 10, lead_time_days: 7, sort_order: 10,
@@ -28,9 +30,9 @@ const PRODUCTS = [
     color_name: 'Amarelo', color_hex: '#f5c400', notes: 'Cada folha branca vira uma folha amarela.',
   },
   {
-    key: 'amarelo-pequeno', name: 'Amarelo pequeno 46x64', size: '46x64', yield_per_sheet: 2, package_sizes: '150,200',
-    color_name: 'Amarelo', color_hex: '#f5c400',
-    notes: 'A folha grande fica amarela e é cortada ao meio na guilhotina: cada folha branca rende 2.',
+    key: 'amarelo-pequeno', name: 'Amarelo pequeno 46x64', size: '46x64', made_from: 'amarelo-grande', yield_per_sheet: 2,
+    package_sizes: '150,200', color_name: 'Amarelo', color_hex: '#f5c400',
+    notes: 'Amarelo grande cortada ao meio na guilhotina: cada folha grande vira 2 pequenas.',
   },
   { key: 'oferta', name: 'Oferta', yield_per_sheet: 2, package_sizes: '150,200', notes: 'Cartaz "Oferta": cabem 2 numa folha grande.' },
   { key: 'aproveite', name: 'Aproveite', yield_per_sheet: 2, package_sizes: '150,200', notes: 'Cartaz "Aproveite": cabem 2 numa folha grande.' },

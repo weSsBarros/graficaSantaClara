@@ -375,6 +375,25 @@ const MIGRATIONS = [
         'Oferta, Aproveite e Splash, com o rendimento de cada um por folha branca.',
     });
   },
+
+  // ---------- v5: a Amarelo pequeno é cortada da Amarelo grande (1 grande = 2 pequenas) ----------
+  // Só muda se ainda estiver como na v4 (feita direto do papel branco); ajustes da administração ficam.
+  (db) => {
+    const find = (name) => db.prepare('SELECT * FROM items WHERE name = ?').get(name);
+    const small = find('Amarelo pequeno 46x64');
+    const big = find('Amarelo grande 94x66');
+    const paper = find('Papel branco 94x66');
+    if (!small || !big || !paper || small.made_from_item_id !== paper.id) return;
+    db.prepare(
+      `UPDATE items SET made_from_item_id = ?, notes = 'Amarelo grande cortada ao meio na guilhotina: cada folha grande vira 2 pequenas.'
+        WHERE id = ?`
+    ).run(big.id, small.id);
+    const { audit } = require('./audit');
+    audit(db, {
+      action: 'item_alterado', entity: 'item', entityId: small.id,
+      summary: 'Amarelo pequeno 46x64 passa a ser feito da Amarelo grande 94x66 (corte na guilhotina: 1 grande = 2 pequenas).',
+    });
+  },
 ];
 
 function migrate(db) {

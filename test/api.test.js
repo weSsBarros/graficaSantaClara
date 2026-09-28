@@ -116,6 +116,8 @@ test('cadastro inicial: papel 94x66 e produtos com o rendimento de cada folha', 
   ]);
   assert.equal(get(PAPEL).pack_size, 150);
   assert.equal(get(OFERTA).made_from_item_id, itemId(PAPEL));
+  assert.equal(get('Amarelo grande 94x66').made_from_item_id, itemId(PAPEL));
+  assert.equal(get('Amarelo pequeno 46x64').made_from_item_id, itemId('Amarelo grande 94x66')); // corte: 1 grande = 2 pequenas
   assert.equal(get('Splash').size, null);
   assert.equal(get('Amarelo pequeno 46x64').package_sizes, '150,200');
   assert.equal(get('Amarelo grande 94x66').package_sizes, '150,100');
@@ -189,6 +191,20 @@ test('impressão: papel sai, produto entra, chapa e tinta descontadas', async ()
   assert.equal(qty('Splash'), 790);
   assert.equal(s.operation.waste_qty, 10);
   assert.equal(qty(PAPEL), 12900);
+});
+
+test('corte: a Amarelo grande vira duas Amarelo pequeno (sem gastar papel branco)', async () => {
+  const c = await client().login('Natan');
+  const GRANDE = 'Amarelo grande 94x66';
+  const PEQUENO = 'Amarelo pequeno 46x64';
+  ok(await c.post('/api/ops/impressao', { product_id: itemId(GRANDE), input_qty: 450 }));
+  assert.equal(qty(GRANDE), 450);
+  const paperBefore = qty(PAPEL);
+  const r = ok(await c.post('/api/ops/impressao', { product_id: itemId(PEQUENO), input_qty: 300, waste_qty: 4 }));
+  assert.match(r.operation.summary, /^Corte de Amarelo pequeno 46x64: 300 folhas de Amarelo grande 94x66 \(2 por folha\)/);
+  assert.equal(qty(GRANDE), 150);
+  assert.equal(qty(PEQUENO), 596);
+  assert.equal(qty(PAPEL), paperBefore);
 });
 
 test('impressão: perda maior que o usado e produto que não é impresso são recusados', async () => {
@@ -685,6 +701,8 @@ test('catálogo antigo ainda sem uso é trocado pelo novo na atualização (v4)'
     assert.ok(names.includes(n), n);
   }
   assert.equal(names.filter((n) => n === 'Tinta amarela').length, 1);
+  const id = (n) => old.prepare('SELECT id FROM items WHERE name = ?').get(n).id;
+  assert.equal(old.prepare('SELECT made_from_item_id AS m FROM items WHERE id = ?').get(id('Amarelo pequeno 46x64')).m, id('Amarelo grande 94x66'));
   assert.equal(old.prepare("SELECT made_from_item_id FROM items WHERE name = 'Produto da Márcia'").get().made_from_item_id, null);
   assert.equal(old.pragma('foreign_key_check').length, 0);
   old.close();
@@ -701,6 +719,21 @@ test('catálogo antigo ainda sem uso é trocado pelo novo na atualização (v4)'
   migrate(used);
   assert.deepEqual(used.prepare('SELECT name FROM items').all().map((r) => r.name), ['Papel branco 46x66']);
   used.close();
+});
+
+test('atualização v5: Amarelo pequeno passa a ser cortada da Amarelo grande', () => {
+  const v4 = openDatabase(':memory:');
+  for (const step of MIGRATIONS.slice(0, 4)) (typeof step === 'function' ? step(v4) : v4.exec(step));
+  v4.pragma('user_version = 4');
+  const now = new Date().toISOString();
+  const ins = v4.prepare('INSERT INTO items (name, category, source, unit, made_from_item_id, yield_per_sheet, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const paper = Number(ins.run('Papel branco 94x66', 'papel', 'compra', 'folha', null, 1, now, now).lastInsertRowid);
+  const big = Number(ins.run('Amarelo grande 94x66', 'impresso', 'producao', 'folha', paper, 1, now, now).lastInsertRowid);
+  const small = Number(ins.run('Amarelo pequeno 46x64', 'impresso', 'producao', 'folha', paper, 2, now, now).lastInsertRowid);
+  migrate(v4);
+  assert.equal(v4.prepare('SELECT made_from_item_id AS m FROM items WHERE id = ?').get(small).m, big);
+  assert.equal(v4.pragma('foreign_key_check').length, 0);
+  v4.close();
 });
 
 test('comando de emergência redefine o PIN direto no servidor', async () => {

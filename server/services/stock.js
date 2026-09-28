@@ -16,7 +16,7 @@ const TYPE_LABELS = {
   entrada: 'Entrada',
   retirada: 'Retirada',
   ajuste: 'Ajuste de inventário',
-  impressao: 'Impressão',
+  impressao: 'Produção (impressão ou corte)',
   empacotamento: 'Empacotamento',
   estorno: 'Estorno',
 };
@@ -314,7 +314,7 @@ function impressao(db, user, body, ctx) {
     throw new HttpError(400, `Escolha o papel usado (ou cadastre em Configurações → Itens de qual papel o "${product.name}" é feito).`);
   }
   const input = getActiveItem(db, inputId);
-  if (input.id === product.id) throw new HttpError(400, 'O papel usado deve ser diferente do produto.');
+  if (input.id === product.id) throw new HttpError(400, 'O material usado deve ser diferente do produto.');
   const used = toBase(input, num(body.input_qty, 'quantas folhas foram usadas', { positive: true, max: 1e9 }), body.input_unit);
   // Cada folha de papel rende `yield_per_sheet` unidades do produto (ex.: Splash, 8 por folha).
   // A perda é contada em unidades do produto, na hora de cortar e separar o bom do ruim.
@@ -336,7 +336,9 @@ function impressao(db, user, body, ctx) {
   const occurredAt = resolveOccurredAt(body.occurred_at, user);
   const good = round3(expected - waste);
 
-  let summary = `Impressão de ${product.name}: ${fmtItemQty(input, used)} de ${input.name}` +
+  // Feito de outro produto (ex.: Amarelo pequeno, da Amarelo grande) = corte na guilhotina.
+  const kindText = input.source === 'producao' ? 'Corte' : 'Impressão';
+  let summary = `${kindText} de ${product.name}: ${fmtItemQty(input, used)} de ${input.name}` +
     `${perSheet !== 1 ? ` (${fmtNum(perSheet)} por folha)` : ''} → ${fmtQty(good, product.unit)} boas`;
   if (waste) summary += ` (perda de ${fmtQty(waste, product.unit)})`;
   if (extras.length) summary += `; usou ${extras.map((e) => `${e.item.name} (${fmtQty(e.qty, e.item.unit)})`).join(', ')}`;

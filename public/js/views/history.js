@@ -3,7 +3,7 @@ import { opItem, bindUndo } from './components.js';
 
 const TYPES = [
   ['', 'Todos os tipos'],
-  ['impressao', 'Impressão'],
+  ['impressao', 'Produção (impressão ou corte)'],
   ['empacotamento', 'Empacotamento'],
   ['entrada', 'Entrada'],
   ['retirada', 'Retirada'],

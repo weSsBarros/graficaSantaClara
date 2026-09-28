@@ -9,7 +9,7 @@ function quickActions(me, data) {
   const p = (x) => hasPerm(me, x);
   const o = data.orders;
   const list = [];
-  if (p('impressao')) list.push({ href: '#/lancar/impressao', icon: 'printer', label: 'Registrar impressão', sub: 'Papel branco → folha impressa', primary: !me.manager });
+  if (p('impressao')) list.push({ href: '#/lancar/impressao', icon: 'printer', label: 'Impressão ou corte', sub: 'Branca → amarela grande → pequenas; cartazes', primary: !me.manager });
   if (p('empacotamento')) {
     list.push({ href: '#/lancar/empacotamento', icon: 'package', label: 'Registrar empacotamento', sub: o.open ? `${o.open} ${o.open === 1 ? 'pedido' : 'pedidos'} em andamento` : 'Separar em pacotes', primary: !me.manager });
   }
